@@ -1,76 +1,62 @@
-# Verifikasi LHS Papua 1.1.0 — Stage 2
+# Verifikasi LHS Papua 1.2.0 — Stage 3
 
-Repository `amanhnb88/LHS`, branch `main`, baseline `a59e4551fb2565296e13b42a4932ada2c3d88115`. Proyek Android yang sudah ada dilanjutkan; tidak ada branch/PR/fork atau workflow baru. Application ID tetap `id.lhspapua`, versionCode 2, versionName 1.1.0, minimum Android 8.0/API 26.
+Status: **implementasi source tersedia, verifikasi Android dan APK rilis masih terhambat**. Jangan menyebut versi ini telah lulus uji UX atau siap produksi.
 
-## Perubahan alur
+Baseline aktual yang diaudit: `71c26846cbbfa5d45cf00743a0b39c2ea48f2b35`, `main`. Application ID tetap `id.lhspapua`, versionCode 3, versionName 1.2.0. Source Android yang ada dilanjutkan tanpa branch, PR, reset atau perubahan signing. Audit timestamp dan akar penyebab ada di [STAGE3_AUDIT.md](STAGE3_AUDIT.md). Laporan Stage 2 dipertahankan sebagai [VERIFICATION_STAGE2.md](VERIFICATION_STAGE2.md); hasilnya bukan bukti pengujian Stage 3.
 
-| Sebelum | Sesudah |
-|---|---|
-| Enam kotak jumlah outlet disusun vertikal | Tiga baris produk, masing-masing Stok/Jual berdampingan |
-| Tombol Simpan bertumpuk dengan ringkasan | Autosave + satu tombol utama Simpan & Outlet Berikutnya; ringkasan dibuka setelah input |
-| Seluruh produk harian berupa formulir panjang | Lima langkah, tiga tab produk, total langsung terlihat |
-| Pengaturan rumus menonjol saat input | Pengaturan Lanjutan terpisah; verifikasi keuangan sekali atau saldo manual |
-| Pratinjau dokumen eksternal tanpa kontrol viewport | Dialog native dengan halaman utuh, lebar layar, zoom/pan/reset dan pergantian halaman |
+## Perubahan yang sudah ditulis
 
-Callsheet: identitas → tambah/pilih outlet → tiga baris produk → outlet berikutnya → daftar/edit/cari/hapus dengan konfirmasi → ringkasan → PDF/Excel. Outlet kosong yang disediakan untuk kunjungan berikutnya dipakai ulang agar nomor tidak meloncat. Nama/alamat tersimpan tidak menyalin jumlah transaksi lama.
+| Area | Sebelum | Implementasi Stage 3 |
+|---|---|---|
+| Beranda | Menu membuat UUID/laporan baru | Menu membuka hub tanpa menulis laporan. Lanjutkan draf, daftar beberapa draf dan Buat Laporan Baru eksplisit |
+| Callsheet | Cari hanya kunjungan laporan aktif, master di picker lain | Cari nama/alamat dari kunjungan dan outlet tersimpan. Saran langsung, tambah outlet baru dari pencarian, tanpa salin stok/jual |
+| Simpan kunjungan | Satu label untuk tambah/edit | Simpan & Tambah Outlet untuk baru, Simpan Perubahan untuk edit, daftar ringkas dan konfirmasi hapus |
+| Harian | Lima langkah, produk dikunjungi pada stok lalu penjualan lalu tester | Identitas ringkas. Tiga bagian Barang/Tester/Keuangan. Satu editor stok dan penjualan per produk. Ketiga tester bersama |
+| Stok awal | Read-only AUTO walaupun sumber tidak ada | Tanpa sumber langsung dapat diisi. Peralihan AUTO tanpa sumber ditolak dan angka manual dipertahankan |
+| Validasi | Dialog Informasi berisi daftar panjang | Pesan field dan tindakan yang membuka bagian/produk/harga terkait |
+| Keyboard | Inset root dan anak diterapkan lagi | Inset Scaffold dikonsumsi sekali, footer ringkas saat IME, Next/Done, bring-into-view |
+| Ekspor | Satu tombol berganti peran | PDF dan Excel terlihat, aksi pratinjau/simpan/bagikan tetap. Finalisasi terpisah |
+| Autosave | Setiap ketukan mengantre write Room | Snapshot terbaru per ID digabung. Jurnal pemulihan sebelum write. Barrier saat pindah/background/operasi lanjutan. Repository menulis hanya laporan yang berubah |
 
-Harian: Informasi Harian → Stok & Barang Masuk → Penjualan → Tester → Keuangan → Periksa Laporan → Selesaikan Laporan → ekspor. Back mempertahankan input; langkah aktif dipulihkan. Laporan final harus dibuka kembali dengan konfirmasi untuk diedit. Callsheet dan harian tetap independen.
+Perbandingan struktural, bukan hasil pengukuran waktu di HP: stok dan penjualan satu produk sekarang cukup satu pembukaan editor, sebelumnya dua tahap/tab terpisah. Tester tidak memerlukan pemilihan tiga tab. Mencari master outlet tidak memerlukan Pengaturan atau picker terpisah. Belum ada klaim jumlah ketukan atau kecepatan tugas lapangan yang telah diukur.
 
-## Pengujian otomatis
+## Hasil yang benar-benar diuji
 
-`testReleaseUnitTest` menjalankan **31 pengujian, 0 gagal, 0 dilewati**:
+Kompilasi `compileReleaseKotlin` **berhasil**. `compileReleaseUnitTestKotlin` juga **berhasil** setelah anotasi API pengujian ditambahkan.
 
-| Area | Jumlah |
-|---|---:|
-| Perhitungan dan regresi versi lama | 8 |
-| Ledger stok antarhari | 6 |
-| Ekspor PDF/Excel dan regresi | 8 |
-| Room, kompatibilitas payload, backup/lampiran | 5 |
-| Matematika viewport dan URI Sharesheet | 2 |
-| Interaksi Compose native, Robolectric API 34 | 2 |
+Dependensi runtime pengujian belum seluruhnya tersimpan. Unduhan `https://dl.google.com:443` diblokir oleh kebijakan jaringan lingkungan. `testReleaseUnitTest --offline` gagal sebelum menjalankan suite karena dependency tidak tersedia. Tidak ada hasil UI/Robolectric Stage 3 yang boleh dinyatakan lulus.
 
-Tes Compose mencatat 10 outlet × tiga produk, mengedit penjualan, mencari outlet, memeriksa total, membatalkan lalu menyetujui hapus, memakai ulang outlet kosong dan berpindah formulir. Tes harian mengisi Stok Awal/DO ketiga produk, melewati lima langkah, mencatat tester terpisah, mengisi saldo, kembali dan memeriksa ringkasan. Tangkapan layar native simulasi diperiksa untuk input outlet, stok, penjualan, dan keuangan. Ini bukan pengujian pada HP fisik.
+Sebagai pemeriksaan lokal tanpa jaringan, kelas hasil kompilasi dijalankan melalui JUnitCore dengan JAR yang tersedia. **27 tes lulus, 0 gagal**:
 
-## Stok dan keuangan
+| Kelas | Tes | Hasil |
+|---|---:|---|
+| CalculationTest | 8 | Lulus |
+| StockLedgerTest | 6 | Lulus |
+| ExportTest | 5 | Lulus |
+| Stage2ExportTest | 3 | Lulus |
+| Stage3LogicTest | 5 | Lulus |
 
-- Contoh resmi: Stok Awal 50 + DO 200 − Jual 150 − Sample 10 − Bns 5 = **TG 85**.
-- Laporan berikutnya (melewati hari tanpa laporan): Stok Awal otomatis 85 + DO 100 − Jual 120 − Sample 5 − Bns 0 = **TG 60**. Tetap benar setelah database ditutup dan dibuka kembali.
-- Tester terpisah: awal 5 + DO 10 − sampel 3 = **12**; berikutnya 12 + DO 1 − sampel 2 = **11**.
-- ID pemilik berbeda tidak berbagi stok. Draf biasa/laporan lama tidak menjadi sumber. Stok awal yang tidak diketahui tetap null. Tanggal sama memakai urutan eksplisit; urutan ganda menghalangi finalisasi.
-- Perubahan sumber menghitung ulang draf. Angka final berikutnya tetap utuh dan ditandai; rantai yang bergantung pada final bermasalah tidak mengambil sumber lama secara diam-diam. Pembukaan ulang sumber menjadi penghalang sampai diperiksa/final kembali.
-- Harga snapshot, kosong versus nol, stok negatif, harga belum diatur, batas integer 15 digit/overflow, laporan lama dan keuangan manual diuji.
-- Rumus awal saldo masih memerlukan persetujuan perusahaan melalui Pengaturan Lanjutan. Arah piutang/pelunasan/transfer/pengeluaran terlihat dan dapat diatur. Saldo manual menggunakan angka yang divalidasi, tanpa formula keuangan yang diasumsikan terkonfirmasi.
+Cakupan: 50 + 200 − 150 − 10 − 5 = TG **85**; hari berikutnya 85 + 100 − 120 − 5 = **60**. Tester **12**, kemudian **11**. Hari tanpa laporan, pemilik terpisah, draf bukan sumber, urutan ganda, perubahan sumber dan final terkait tetap dibekukan/ditandai. Harga snapshot, bilangan besar/overflow, kosong berbeda dari nol dan harga belum diatur diperiksa. Pencarian Toko Aimas dari master tanpa kunjungan ditemukan; transaksi kunjungan baru tetap kosong. Parser Rupiah, posisi kursor visual, penggabungan 200 snapshot dan target validasi diuji.
 
-## PDF dan Excel A4
+Tes yang **sudah ditulis dan dikompilasi, belum dijalankan**: UiSmokeTest (master outlet/resume draf, 10 outlet/edit/hapus, harian tiga produk/tester/keuangan, fokus IME/paste/kursor, layar 360×640/font 130%/inset IME sintetis), DraftRecoveryTest (penyimpanan cepat, pemulihan jurnal, perlindungan stok manual), PersistenceTest (Room/backup/data lama), PreviewShareTest (viewport dan content URI), serta NativeFlowTest untuk perangkat/emulator. Tidak ada screenshot UI baru yang berhasil dibuat. Tidak ada emulator/perangkat fisik tersedia dan tidak ada klaim pengujian Samsung, instalasi upgrade atau proses aplikasi benar-benar dimatikan.
+
+## PDF dan Excel
 
 | Formulir | PDF MediaBox (pt) | Excel |
 |---|---|---|
-| Callsheet | 841.8898 × 595.2756 | A4 landscape, Print Area, fit lebar 1 halaman |
-| Laporan Harian | 595.2756 × 841.8898 | A4 portrait, Print Area, fit 1 halaman |
+| Callsheet | 841.8898 × 595.2756 | A4 landscape, Print Area, fit width |
+| Harian | 595.2756 × 841.8898 | A4 portrait, Print Area, fit width |
 
-PDF vektor diperiksa dengan PDFBox dan dirender dengan Poppler; Excel dibuka ulang dan dihitung dengan Apache POI, kemudian diimpor/dihitung/dirender menggunakan mesin spreadsheet independen. Tidak ditemukan formula error pada sampel. Seluruh label, bentuk dan koordinat grid resmi tetap dipertahankan. Sampel visual dibandingkan dengan gambar final; margin sekitar 10 mm. Callsheet diuji 1/30/31/61 outlet, 30 baris per halaman, tanpa halaman kosong tambahan. JUMLAH per halaman menjumlahkan halaman tersebut, sedangkan ringkasan Android menjumlahkan semua outlet.
+Delapan tes ekspor lulus. Callsheet 1/30/31/61 outlet, tiga produk, 30 baris per halaman, jumlah, teks `=1+1` aman, nama/alamat panjang, tanpa halaman kosong tambahan diuji. Workbook dibuka kembali di Apache POI dan nilai input diubah: SUM Callsheet, subtotal, total produk/penjualan, Jual, TG, TG Tester dan saldo ikut dihitung ulang. Stok awal pada sheet tersembunyi `_StokAwal`. Nilai cache dibandingkan dengan domain Android. PDF dirender dengan Poppler dan diperiksa visual: bagian utama ada, margin aman, tanpa potongan tabel pada sampel. Source grid/PDF/Excel tetap sama dengan baseline. Tidak ada klaim identik piksel dengan foto golden reference atau pengujian langsung Microsoft Excel/WPS pada Stage 3.
 
-Rumus aktif Excel diuji dengan mengubah jumlah, harga, DO dan stok awal: subtotal, total produk, seluruh penjualan, Jual, TG, TG Tester, dan saldo otomatis yang disetujui ikut berubah. Stok Awal berada pada sheet tersembunyi `_StokAwal` yang tidak mempunyai Print Area; formulir resmi tidak mendapat kolom tambahan. Saldo manual berupa cell numerik. Teks `=1+1` tetap string aman. Nilai rupiah integer; pemisah ribuan tampilan Excel mengikuti locale aplikasi spreadsheet.
+## Data dan kompatibilitas
 
-## Data lama dan backup
+Database.kt dan schema SQL version 1 tidak berubah. Tidak ada destructive migration. CallReport mendapat field JSON tambahan `completed=false` untuk membedakan draf/selesai; payload lama dapat memakai default. Calculation.kt dan StockLedger.kt tidak berubah. Optimasi Repository.saveDay hanya menyaring payload yang tidak berubah sebelum upsert, masih di dalam transaksi yang sama. Tes Room/pemulihan sesungguhnya harus dijalankan saat dependency tersedia; hasil lama Stage 2 tidak dianggap hasil Stage 3.
 
-SQL Room tetap schema version 1; tidak diperlukan perubahan tabel dan tidak ada destructive migration. Field JSON baru mempunyai default kompatibel. Payload dengan field versi lama diuji setelah database ditutup/dibuka; ID, transaksi, harga dan hasil lama tetap sama. Laporan lama baru menggunakan pencatatan Stok Awal setelah tindakan konversi dengan konfirmasi, tanpa menghapus transaksi atau lampiran.
+## Release dan kendala yang tersisa
 
-Backup versi 2 mempertahankan ledger, status final, sumber, revisi dan lampiran. Restore versi 1 tetap diterima. Round-trip kedua versi, pemisahan formulir, salinan lampiran dan penolakan ZIP path traversal diuji. Laporan final yang diimpor direkonsiliasi bersama seluruh sumbernya agar urutan isi backup tidak mengubah perhitungan.
+Build release lokal offline gagal pada `mergeReleaseNativeLibs` karena tiga dependency runtime belum tersimpan: `androidx.lifecycle:lifecycle-common-java8:2.8.7`, `androidx.collection:collection-ktx:1.5.0`, `com.google.guava:listenablefuture:1.0`. Tidak ada APK 1.2.0 yang berhasil dibuat, tidak ada signature APK baru yang diverifikasi, dan tidak ada tautan APK palsu. Konfigurasi memakai keystore yang sama, tidak mengganti signing identity atau empat nama Secrets.
 
-## Release dan batas akses
+Satu workflow lama tetap `workflow_dispatch`, tanpa pemicu push, matrix atau workflow baru. Nama artifact diperbarui untuk versi 1.2.0. **Tidak ada GitHub Actions run Stage 3 yang dipicu.** Konektor tersedia hanya menyediakan pembacaan dan rerun run/job lama, tanpa dispatch workflow baru atau upload artifact. Rerun commit lama tidak membuktikan source baru sehingga tidak digunakan.
 
-Release memakai kunci lama; tidak ada keystore baru atau rahasia di source. Empat nama Secrets tetap `LHS_KEYSTORE_BASE64`, `LHS_KEYSTORE_PASSWORD`, `LHS_KEY_ALIAS`, `LHS_KEY_PASSWORD`.
-
-Satu workflow yang sama, `android-release.yml`, tetap manual `workflow_dispatch`, satu job, cache Gradle, tanpa matrix/push trigger. Nama artifact disesuaikan menjadi `LHS-Papua-1.1.0-signed`. Build dan pengujian Stage 2 dilakukan lokal agar tidak memakai kuota Actions. Run GitHub terakhir yang sudah berhasil untuk versi sebelumnya: https://github.com/amanhnb88/LHS/actions/runs/42021535910 .
-
-Konektor GitHub sesi ini tidak menyediakan operasi dispatch workflow baru atau upload artifact Actions. Tidak dilakukan rerun SHA lama. Untuk mendapatkan artifact Actions Stage 2, jalankan **Run workflow → main** pada workflow yang sama sesudah commit Stage 2. APK signed hasil build lokal disediakan langsung; jangan menyebut run versi lama sebagai build Stage 2.
-
-Belum diuji di HP fisik/emulator penuh: pemasangan upgrade, interupsi telepon/proses Android, keyboard/nav bar pada perangkat pengguna, render/pinch native PdfRenderer, pemilih dokumen, pengiriman nyata WhatsApp/Gmail, serta pembukaan langsung di Excel/WPS. Geometri preview dan URI izin berbagi diuji otomatis. Robolectric tidak menyediakan render PDF native yang nyata pada konfigurasi ini; tes render dua halaman disediakan di `NativeFlowTest` untuk `connectedDebugAndroidTest`, belum dijalankan. Sertifikat/app ID/versionCode dan kompatibilitas database diperiksa; ini bukan klaim upgrade fisik sudah diuji.
-
-## APK hasil build lokal
-
-`testReleaseUnitTest assembleRelease` dan lint vital release **lulus**. Android `apksigner verify --verbose --print-certs` menyatakan signature v2 valid, satu signer RSA 3072. Sertifikat SHA-256 sama dengan versi 1.0.0: `ba6db11cb0fdc995bd288463cc2596951ca8566775c926d7acccd2cf16b4a6b7`. `aapt dump badging` memverifikasi package `id.lhspapua`, versi 1.1.0/code 2, launcher LHS Papua, minSdk 26 dan targetSdk 35. Tidak ada izin internet.
-
-SHA-256 APK: `27ab07fe9a5b2f686eef3ca67fd95f9db096b3a9821d67d6acf1478aae701dc9`.
-Ukuran APK: 7,451,503 byte.
+Langkah berikut yang diperlukan: jalankan workflow manual pada `main` setelah commit Stage 3 tersedia. Job menjalankan seluruh `testReleaseUnitTest` sebelum `assembleRelease`, memverifikasi signature dan hanya mengunggah APK jika berhasil. Jika akses dispatch tersedia kembali, pekerjaan dilanjutkan dari source ini. Sampai seluruh tes Android dan build lulus, kriteria penyelesaian pengguna **belum terpenuhi**.

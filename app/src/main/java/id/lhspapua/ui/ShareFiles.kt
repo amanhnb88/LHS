@@ -17,5 +17,9 @@ object ShareFiles {
             clipData=ClipData.newRawUri("Laporan LHS Papua",uris.first()).also { c->uris.drop(1).forEach { c.addItem(ClipData.Item(it)) } }
         }
     }
+    fun view(context:Context,file:File) {
+        val source=intent(context,listOf(file))
+        context.startActivity(Intent(Intent.ACTION_VIEW).apply { setDataAndType(source.clipData!!.getItemAt(0).uri,source.type);addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);clipData=source.clipData })
+    }
     fun share(context:Context,files:List<File>) { context.startActivity(Intent.createChooser(intent(context,files),"Bagikan laporan")) }
 }

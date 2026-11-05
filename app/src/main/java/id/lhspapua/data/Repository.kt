@@ -27,8 +27,10 @@ class Repository(private val context: Context, private val db: LhsDatabase = Lhs
     private suspend fun writeDay(r:DailyReport) { Calculation.validate(r); dao.save(DailyEntity(r.id,r.identity.date,r.identity.sales,json.encodeToString(r))) }
     suspend fun allDaily() = dao.allDaily().map { json.decodeFromString<DailyReport>(it.payload) }
     suspend fun saveDay(r:DailyReport):StockLedger.Result = db.withTransaction {
-        val result=StockLedger.reconcile(allDaily(),r)
-        result.reports.forEach { writeDay(it) }; result
+        val before=allDaily()
+        val result=StockLedger.reconcile(before,r)
+        val existing=before.associateBy { it.id }
+        result.reports.filter { existing[it.id]!=it }.forEach { writeDay(it) }; result
     }
     suspend fun finalizeDay(id:String):StockLedger.Result = db.withTransaction {
         val existing=daily(id) ?: error("Laporan tidak ditemukan.")

@@ -20,6 +20,8 @@ class PreviewShareTest {
         val scale=PreviewGeometry.fit(595f,842f,400f,600f)
         assertTrue(595*scale<=400);assertTrue(842*scale<=600)
         val fitted=PreviewGeometry.clamp(Offset(1000f,-1000f),1f,595f,842f,400f,600f);assertEquals(0f,fitted.x,0.001f);assertEquals(0f,fitted.y,0.001f)
+        val pivot=PreviewGeometry.gesture(Offset.Zero,1f,2f,Offset(250f,300f),Offset.Zero,400f,600f)
+        assertEquals(-50f,pivot.x,0.001f);assertEquals(0f,pivot.y,0.001f)
         val wide=PreviewGeometry.fitWidthZoom(842f,595f,400f,200f);assertTrue(wide>1f)
         val pan=PreviewGeometry.clamp(Offset(1000f,-1000f),2f,595f,842f,400f,600f);assertTrue(pan.x in 0f..200f);assertTrue(pan.y in -300f..0f)
     }

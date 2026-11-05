@@ -19,7 +19,7 @@ import java.util.UUID
 @Serializable data class Outlet(val id: String = UUID.randomUUID().toString(), val name: String = "", val address: String = "", val quantities: List<Quantity> = List(3) { Quantity() })
 fun Outlet.untouched() = name.isBlank() && address.isBlank() && quantities.all { it.stock==null && it.sold==null }
 fun CallReport.activeOutlets() = outlets.filterNot { it.untouched() }
-@Serializable data class CallReport(val id: String = UUID.randomUUID().toString(), val identity: Identity = Identity(), val outlets: List<Outlet> = emptyList())
+@Serializable data class CallReport(val id: String = UUID.randomUUID().toString(), val identity: Identity = Identity(), val outlets: List<Outlet> = emptyList(), val completed: Boolean = false)
 @Serializable data class Sale(val quantity: Long? = null, val price: Long? = null)
 @Serializable data class Stock(val delivery: Long? = null, val sample: Long? = null, val bonus: Long? = null, val manualTg: Long? = null, val sales: List<Sale> = List(3) { Sale() }, val opening: Long? = null, val openingTracked: Boolean = false)
 @Serializable data class Tester(val delivery: Long? = null, val sample: Long? = null, val manualTg: Long? = null, val opening: Long? = null, val openingTracked: Boolean = false)

@@ -32,6 +32,10 @@ import kotlin.math.min
 object PreviewGeometry {
     fun fit(pageWidth:Float,pageHeight:Float,width:Float,height:Float):Float = min(width/pageWidth,height/pageHeight)
     fun fitWidthZoom(pageWidth:Float,pageHeight:Float,width:Float,height:Float) = ((width/pageWidth)/fit(pageWidth,pageHeight,width,height)).coerceIn(1f,6f)
+    fun gesture(offset:Offset,oldZoom:Float,newZoom:Float,centroid:Offset,pan:Offset,width:Float,height:Float):Offset {
+        val pivot=centroid-Offset(width/2,height/2)
+        return (offset-pivot)*(newZoom/oldZoom)+pivot+pan
+    }
     fun clamp(offset:Offset,zoom:Float,pageWidth:Float,pageHeight:Float,width:Float,height:Float):Offset {
         val base=fit(pageWidth,pageHeight,width,height)
         val x=max(0f,(pageWidth*base*zoom-width)/2)
@@ -70,7 +74,7 @@ object NativePdfPreview {
     }
     Dialog(onDismissRequest=onClose,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
         Scaffold(contentWindowInsets=WindowInsets.safeDrawing,topBar={ TopAppBar(title={ Text("Pratinjau PDF") },navigationIcon={ TextButton(onClick=onClose) { Text("Kembali") } }) }) { padding ->
-            Column(Modifier.fillMaxSize().padding(padding)) {
+            Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
                 val image=rendered
                 if(error!=null) Text(error!!,Modifier.padding(20.dp),color=MaterialTheme.colorScheme.error)
                 if(image==null && error==null) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -83,8 +87,12 @@ object NativePdfPreview {
                         val density=LocalDensity.current
                         val width=with(density) { maxWidth.toPx() };val height=with(density) { maxHeight.toPx() }
                         val bw=image.bitmap.width.toFloat();val bh=image.bitmap.height.toFloat()
-                        fun setZoom(next:Float,pan:Offset=Offset.Zero) { zoom=next.coerceIn(1f,6f);offset=PreviewGeometry.clamp(offset+pan,zoom,bw,bh,width,height) }
-                        Box(Modifier.fillMaxSize().pointerInput(file,page,width,height) { detectTransformGestures { _,pan,change,_ -> setZoom(zoom*change,pan) } }) {
+                        fun setZoom(next:Float,pan:Offset,centroid:Offset) {
+                            val newZoom=next.coerceIn(1f,6f)
+                            offset=PreviewGeometry.clamp(PreviewGeometry.gesture(offset,zoom,newZoom,centroid,pan,width,height),newZoom,bw,bh,width,height)
+                            zoom=newZoom
+                        }
+                        Box(Modifier.fillMaxSize().pointerInput(file,page,width,height) { detectTransformGestures { centroid,pan,change,_ -> setZoom(zoom*change,pan,centroid) } }) {
                         Image(image.bitmap.asImageBitmap(),contentDescription="Halaman ${page+1} dari ${image.pageCount}",contentScale=ContentScale.Fit,
                             modifier=Modifier.fillMaxSize().graphicsLayer(scaleX=zoom,scaleY=zoom,translationX=offset.x,translationY=offset.y))
                         }
@@ -95,10 +103,10 @@ object NativePdfPreview {
                     Column(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=8.dp)) {
                         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
                             TextButton(onClick={ zoom=(zoom/1.25f).coerceAtLeast(1f);offset=Offset.Zero },enabled=zoom>1f) { Text("Perkecil −") }
-                            Text("${(zoom*100).toInt()}%",Modifier.padding(top=12.dp))
+                            Text(if(zoom==1f)"Halaman utuh" else String.format(java.util.Locale.forLanguageTag("id-ID"),"%.1f×",zoom),Modifier.padding(top=12.dp))
                             TextButton(onClick={ zoom=(zoom*1.25f).coerceAtMost(6f) },enabled=zoom<6f) { Text("Perbesar +") }
                         }
-                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
+                        if(image!=null && image.pageCount>1)Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
                             TextButton(onClick={ page-- },enabled=page>0) { Text("Sebelumnya") }
                             Text("${page+1} / ${image?.pageCount ?: "…"}",Modifier.padding(top=12.dp))
                             TextButton(onClick={ page++ },enabled=image!=null && page+1<image.pageCount) { Text("Berikutnya") }

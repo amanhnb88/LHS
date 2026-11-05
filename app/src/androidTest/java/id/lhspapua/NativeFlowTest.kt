@@ -16,15 +16,15 @@ class NativeFlowTest {
     private fun click(text:String) { val node=compose.onNode(hasText(text) and hasClickAction());runCatching { node.performScrollTo() };node.performClick() }
     @Test fun nativeCompactCallInput() {
         compose.waitUntil(15000) { compose.onAllNodesWithText("CALLSHEET").fetchSemanticsNodes().isNotEmpty() }
-        click("CALLSHEET")
+        click("CALLSHEET");click("Buat Laporan Baru")
         compose.onNodeWithText("Nama Sales").performScrollTo().performTextReplacement("Sales Uji Perangkat")
-        click("Lanjut");click("Tambah Outlet")
+        click("Gunakan Identitas");click("Tambah Outlet")
         compose.onNodeWithText("Nama Outlet").performScrollTo().performTextInput("Toko Uji")
         compose.onNodeWithText("Alamat").performScrollTo().performTextInput("Jayapura")
         repeat(3) { p->compose.onNodeWithTag("call-$p-stock").performScrollTo().performTextReplacement("10");compose.onNodeWithTag("call-$p-sold").performScrollTo().performTextReplacement("3") }
-        click("Simpan & Outlet Berikutnya");click("Lihat Daftar Outlet")
-        compose.onNodeWithText("1. Toko Uji").performScrollTo().assertExists();click("Lihat Ringkasan")
-        compose.onAllNodesWithText("Total Jual: 3").assertCountEquals(3)
+        click("Simpan & Tambah Outlet");click("Daftar Kunjungan")
+        compose.onNodeWithText("1. Toko Uji").performScrollTo().assertExists();click("Periksa Laporan")
+        compose.onAllNodesWithText("Stok 10 · Jual 3").assertCountEquals(3)
     }    @Test fun nativePreviewRendersAndNavigatesTwoPages() {
         val context=ApplicationProvider.getApplicationContext<Context>();val file=File(context.cacheDir,"preview.pdf")
         val r=id.lhspapua.domain.CallReport(outlets=List(31) { id.lhspapua.domain.Outlet(name="Outlet $it") })
