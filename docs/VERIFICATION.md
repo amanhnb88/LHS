@@ -1,6 +1,6 @@
 # Verifikasi LHS Papua 1.2.0 — Stage 3
 
-Status: **build GitHub pada 428e6fe gagal pada empat timeout tes UI; perbaikan harness sudah dikompilasi dan menunggu verifikasi workflow terbaru**. Jangan menyebut APK rilis berhasil sebelum artifact dan signature tersedia.
+Status: **build GitHub pada 1131400 menjalankan 42 tes, 41 lulus dan satu tes navigasi gagal; sinkronisasi Back diperbaiki dan menunggu run baru**. Jangan menyebut APK rilis berhasil sebelum artifact dan signature tersedia.
 
 Baseline aktual yang diaudit: `71c26846cbbfa5d45cf00743a0b39c2ea48f2b35`, `main`. Application ID tetap `id.lhspapua`, versionCode 3, versionName 1.2.0. Source Android yang ada dilanjutkan tanpa branch, PR, reset atau perubahan signing. Audit timestamp dan akar penyebab ada di [STAGE3_AUDIT.md](STAGE3_AUDIT.md). Laporan Stage 2 dipertahankan sebagai [VERIFICATION_STAGE2.md](VERIFICATION_STAGE2.md); hasilnya bukan bukti pengujian Stage 3.
 
@@ -54,6 +54,14 @@ Tiga kegagalan berhenti di `UiSmokeTest.kt:35` menunggu `ready`; satu di baris 4
 Perbaikan harness: polling state disinkronkan melalui `compose.runOnIdle` supaya antrean main Android/Robolectric ikut diproses, bukan hanya membaca StateFlow. Setiap skenario memakai instance Room terpisah dan ViewModel-nya dibatalkan sesudah tes untuk mencegah sisa pekerjaan/singleton antar skenario. Timeout tetap 20 detik dan semua assertion dipertahankan. Pesan kegagalan berikutnya mencakup ready/pending/busy/status/error sehingga tidak berhenti pada timeout tanpa konteks. Workflow yang sama sekarang menyimpan laporan JUnit/HTML dan capture UI ketika tersedia, termasuk saat gagal.
 
 `compileReleaseUnitTestKotlin --offline` setelah perbaikan **berhasil**. Hasil runtime harness yang diperbaiki belum tersedia. NativeFlowTest untuk perangkat/emulator belum dijalankan. Tidak ada emulator/perangkat fisik tersedia dan tidak ada klaim pengujian Samsung atau instalasi upgrade.
+
+### Pemeriksaan build kedua dan koreksi navigasi tes
+
+[Run 42067734187](https://github.com/amanhnb88/LHS/actions/runs/42067734187), commit `1131400d8472b3421548ff57161d505ae03484fd`, menghasilkan **41 lulus, satu gagal dari 42 tes**. Keempat timeout sebelumnya sudah hilang. Tes harian tiga produk/tester/keuangan, Next/Done/paste/kursor, layar kecil dengan font 130%/inset IME sintetis, serta Callsheet 10 outlet lulus. Lima screenshot hasil simulasi native berhasil tersimpan pada artifact diagnostik.
+
+Laporan XML menunjukkan satu kegagalan di `masterOutletIsFoundDirectlyAndDraftResumesWithoutDuplicates`, saat mencari tombol CALLSHEET tepat setelah `onBackPressed()` pada baris 81. Pemilihan Toko Aimas dan pengisian jumlah sebelumnya sudah berhasil. Tes mengirim Back segera setelah tombol Daftar Kunjungan tanpa menyelesaikan recomposition; callback editor sebelumnya masih dapat dipanggil. Perbaikan menggunakan `compose.runOnIdle` untuk mengirim Back setelah UI sinkron, kemudian menunggu state beranda sebelum menekan menu. Tes juga menunggu laporan muncul pada riwayat tersimpan sebelum membandingkan jumlah laporan, agar observasi Flow tidak berlomba dengan commit Room. Tetap menguji Back Android asli dan jumlah/ID laporan, tanpa menggantinya dengan navigasi langsung ViewModel.
+
+Screenshot Callsheet, editor produk, tester, keuangan, serta layar 360×640/font 130%/IME sintetis diperiksa. Produk dan input dapat dibaca dan field aktif/aksi utama berada di viewport. Screenshot sintetis tidak menggambarkan keyboard fisik Samsung. Run ini belum menghasilkan APK rilis karena satu assertion tes gagal. Koreksi Back belum boleh disebut lulus sebelum run baru.
 
 ## PDF dan Excel
 

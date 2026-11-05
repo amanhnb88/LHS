@@ -72,13 +72,18 @@ class UiSmokeTest {
     @Test fun masterOutletIsFoundDirectlyAndDraftResumesWithoutDuplicates() {
         vm.settings { it.copy(outlets=listOf(SavedOutlet("Toko Aimas","Jalan Aimas"))) };saved()
         newCall();val id=vm.state.value.call!!.id
+        awaitState("Callsheet appears in persisted history") { vm.state.value.calls.any { it.id==id } }
         val count=vm.state.value.calls.size
         text("outlet-search","aimas");click("Toko Aimas")
         compose.onNodeWithTag("Alamat").assertTextContains("Jalan Aimas")
         assertTrue(vm.state.value.call!!.outlets.last().quantities.all { it.stock==null&&it.sold==null })
         repeat(3) { p->text("call-$p-stock","10");text("call-$p-sold","3") }
         snapshot("STAGE3_CALLSHEET");click("Simpan & Tambah Outlet");click("Daftar Kunjungan")
-        compose.activity.onBackPressedDispatcher.onBackPressed();click("CALLSHEET")
+        // Finish the list recomposition before sending the real Android Back event.
+        // Otherwise Back can still invoke the previous outlet editor callback.
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        awaitState("Android Back returns to home") { vm.state.value.screen=="home" }
+        click("CALLSHEET")
         saved();assertEquals(count,vm.state.value.calls.size)
         compose.onAllNodesWithText("Lanjutkan").onFirst().performClick();assertEquals(id,vm.state.value.call!!.id)
         compose.onNodeWithText("1. Toko Aimas").performScrollTo().assertExists()
