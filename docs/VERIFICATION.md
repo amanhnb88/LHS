@@ -1,6 +1,6 @@
 # Verifikasi LHS Papua 1.2.0 — Stage 3
 
-Status: **implementasi source tersedia, verifikasi Android dan APK rilis masih terhambat**. Jangan menyebut versi ini telah lulus uji UX atau siap produksi.
+Status: **build GitHub pada 428e6fe gagal pada empat timeout tes UI; perbaikan harness sudah dikompilasi dan menunggu verifikasi workflow terbaru**. Jangan menyebut APK rilis berhasil sebelum artifact dan signature tersedia.
 
 Baseline aktual yang diaudit: `71c26846cbbfa5d45cf00743a0b39c2ea48f2b35`, `main`. Application ID tetap `id.lhspapua`, versionCode 3, versionName 1.2.0. Source Android yang ada dilanjutkan tanpa branch, PR, reset atau perubahan signing. Audit timestamp dan akar penyebab ada di [STAGE3_AUDIT.md](STAGE3_AUDIT.md). Laporan Stage 2 dipertahankan sebagai [VERIFICATION_STAGE2.md](VERIFICATION_STAGE2.md); hasilnya bukan bukti pengujian Stage 3.
 
@@ -38,7 +38,22 @@ Sebagai pemeriksaan lokal tanpa jaringan, kelas hasil kompilasi dijalankan melal
 
 Cakupan: 50 + 200 − 150 − 10 − 5 = TG **85**; hari berikutnya 85 + 100 − 120 − 5 = **60**. Tester **12**, kemudian **11**. Hari tanpa laporan, pemilik terpisah, draf bukan sumber, urutan ganda, perubahan sumber dan final terkait tetap dibekukan/ditandai. Harga snapshot, bilangan besar/overflow, kosong berbeda dari nol dan harga belum diatur diperiksa. Pencarian Toko Aimas dari master tanpa kunjungan ditemukan; transaksi kunjungan baru tetap kosong. Parser Rupiah, posisi kursor visual, penggabungan 200 snapshot dan target validasi diuji.
 
-Tes yang **sudah ditulis dan dikompilasi, belum dijalankan**: UiSmokeTest (master outlet/resume draf, 10 outlet/edit/hapus, harian tiga produk/tester/keuangan, fokus IME/paste/kursor, layar 360×640/font 130%/inset IME sintetis), DraftRecoveryTest (penyimpanan cepat, pemulihan jurnal, perlindungan stok manual), PersistenceTest (Room/backup/data lama), PreviewShareTest (viewport dan content URI), serta NativeFlowTest untuk perangkat/emulator. Tidak ada screenshot UI baru yang berhasil dibuat. Tidak ada emulator/perangkat fisik tersedia dan tidak ada klaim pengujian Samsung, instalasi upgrade atau proses aplikasi benar-benar dimatikan.
+Build GitHub [42065701932](https://github.com/amanhnb88/LHS/actions/runs/42065701932), commit `428e6fed1326fefef4837fefe4865d822eeaebe5`, sudah menjalankan **42 tes: 38 lulus dan 4 gagal**. Ini memperbarui keterbatasan pemeriksaan lokal di atas.
+
+| Area CI | Hasil pada 428e6fe |
+|---|---|
+| 27 tes kalkulasi, ledger, ekspor dan logika baru | Lulus |
+| 5 tes Room/kompatibilitas/backup | Lulus |
+| 3 tes penggabungan write, pemulihan jurnal dan penjagaan stok manual | Lulus |
+| 2 tes matematika viewport dan URI Sharesheet | Lulus |
+| Callsheet 10 outlet, edit, validasi dan hapus | Lulus |
+| Pencarian master/resume, fokus/paste, harian, layar kecil/font/IME | Timeout pada persiapan atau menunggu simpan, belum lulus |
+
+Tiga kegagalan berhenti di `UiSmokeTest.kt:35` menunggu `ready`; satu di baris 40 menunggu `pending/busy`. Log tidak membuktikan kegagalan rumus atau signing. `validateSigningRelease` dan pemeriksaan empat Secrets telah lolos, tetapi pemeriksaan signature APK dan upload APK dilewati karena suite gagal.
+
+Perbaikan harness: polling state disinkronkan melalui `compose.runOnIdle` supaya antrean main Android/Robolectric ikut diproses, bukan hanya membaca StateFlow. Setiap skenario memakai instance Room terpisah dan ViewModel-nya dibatalkan sesudah tes untuk mencegah sisa pekerjaan/singleton antar skenario. Timeout tetap 20 detik dan semua assertion dipertahankan. Pesan kegagalan berikutnya mencakup ready/pending/busy/status/error sehingga tidak berhenti pada timeout tanpa konteks. Workflow yang sama sekarang menyimpan laporan JUnit/HTML dan capture UI ketika tersedia, termasuk saat gagal.
+
+`compileReleaseUnitTestKotlin --offline` setelah perbaikan **berhasil**. Hasil runtime harness yang diperbaiki belum tersedia. NativeFlowTest untuk perangkat/emulator belum dijalankan. Tidak ada emulator/perangkat fisik tersedia dan tidak ada klaim pengujian Samsung atau instalasi upgrade.
 
 ## PDF dan Excel
 
@@ -51,12 +66,12 @@ Delapan tes ekspor lulus. Callsheet 1/30/31/61 outlet, tiga produk, 30 baris per
 
 ## Data dan kompatibilitas
 
-Database.kt dan schema SQL version 1 tidak berubah. Tidak ada destructive migration. CallReport mendapat field JSON tambahan `completed=false` untuk membedakan draf/selesai; payload lama dapat memakai default. Calculation.kt dan StockLedger.kt tidak berubah. Optimasi Repository.saveDay hanya menyaring payload yang tidak berubah sebelum upsert, masih di dalam transaksi yang sama. Tes Room/pemulihan sesungguhnya harus dijalankan saat dependency tersedia; hasil lama Stage 2 tidak dianggap hasil Stage 3.
+Database.kt dan schema SQL version 1 tidak berubah. Tidak ada destructive migration. CallReport mendapat field JSON tambahan `completed=false` untuk membedakan draf/selesai; payload lama dapat memakai default. Calculation.kt dan StockLedger.kt tidak berubah. Optimasi Repository.saveDay hanya menyaring payload yang tidak berubah sebelum upsert, masih di dalam transaksi yang sama. Tes Room dan pemulihan jurnal lulus pada run Stage 3 di atas; hasil lama Stage 2 tidak digunakan sebagai bukti pengujian baru.
 
 ## Release dan kendala yang tersisa
 
 Build release lokal offline gagal pada `mergeReleaseNativeLibs` karena tiga dependency runtime belum tersimpan: `androidx.lifecycle:lifecycle-common-java8:2.8.7`, `androidx.collection:collection-ktx:1.5.0`, `com.google.guava:listenablefuture:1.0`. Tidak ada APK 1.2.0 yang berhasil dibuat, tidak ada signature APK baru yang diverifikasi, dan tidak ada tautan APK palsu. Konfigurasi memakai keystore yang sama, tidak mengganti signing identity atau empat nama Secrets.
 
-Satu workflow lama tetap `workflow_dispatch`, tanpa pemicu push, matrix atau workflow baru. Nama artifact diperbarui untuk versi 1.2.0. **Tidak ada GitHub Actions run Stage 3 yang dipicu.** Konektor tersedia hanya menyediakan pembacaan dan rerun run/job lama, tanpa dispatch workflow baru atau upload artifact. Rerun commit lama tidak membuktikan source baru sehingga tidak digunakan.
+Satu workflow lama tetap `workflow_dispatch`, tanpa pemicu push, matrix atau workflow baru. Build Stage 3 pertama telah dijalankan pengguna dan gagal pada empat timeout UI yang dijelaskan di atas. Tidak ada APK atau artifact rilis dari run tersebut. Perbaikan harness tidak mengubah kode bisnis, database produksi, layout ekspor, versi aplikasi atau signing.
 
-Langkah berikut yang diperlukan: jalankan workflow manual pada `main` setelah commit Stage 3 tersedia. Job menjalankan seluruh `testReleaseUnitTest` sebelum `assembleRelease`, memverifikasi signature dan hanya mengunggah APK jika berhasil. Jika akses dispatch tersedia kembali, pekerjaan dilanjutkan dari source ini. Sampai seluruh tes Android dan build lulus, kriteria penyelesaian pengguna **belum terpenuhi**.
+Konektor tersedia hanya menyediakan pembacaan dan rerun run/job lama, tanpa dispatch workflow baru. Rerun commit lama tetap memakai source lama sehingga tidak digunakan. Setelah commit perbaikan tersimpan, pilih **Run workflow → main** pada [workflow release](https://github.com/amanhnb88/LHS/actions/workflows/android-release.yml). Job tetap menjalankan seluruh tes sebelum menerima APK rilis; pemeriksaan tidak dilewati. Sampai seluruh suite dan build lulus, kriteria penyelesaian pengguna **belum terpenuhi**.

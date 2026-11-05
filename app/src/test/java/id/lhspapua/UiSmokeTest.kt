@@ -10,7 +10,12 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import id.lhspapua.ui.*
 import id.lhspapua.domain.*
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Before
+import androidx.room.Room
+import id.lhspapua.data.LhsDatabase
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.cancel
 import org.junit.Rule
 import org.junit.Test
 import org.junit.Assert.*
@@ -25,19 +30,41 @@ import org.robolectric.annotation.GraphicsMode
 class UiSmokeTest {
     @get:Rule val compose=createAndroidComposeRule<MainActivity>()
     private lateinit var vm:LhsViewModel
+    private lateinit var database:LhsDatabase
+    private val databaseInstance get()=LhsDatabase::class.java.getDeclaredField("instance").apply { isAccessible=true }
+
+    // StateFlow reads alone do not drain Robolectric's paused Android main queue.
+    // runOnIdle synchronizes both Compose and Android callbacks before checking IO completion.
+    private fun awaitState(description:String,condition:()->Boolean) {
+        try { compose.waitUntil(20000) { compose.runOnIdle { condition() } } }
+        catch(e:ComposeTimeoutException) {
+            val s=vm.state.value
+            throw AssertionError("$description: ready=${s.ready}, pending=${s.pending}, busy=${s.busy}, saved=${s.saved}, error=${s.error}",e)
+        }
+    }
     @Before fun isolate() {
         compose.runOnIdle {
             compose.activity.viewModelStore.clear()
+            // Each scenario gets a real, isolated Room database, never a previous activity's singleton.
+            (databaseInstance.get(null) as? LhsDatabase)?.close()
+            database=Room.inMemoryDatabaseBuilder(compose.activity.application,LhsDatabase::class.java).build()
+            databaseInstance.set(null,database)
             compose.activity.application.getSharedPreferences("navigation",0).edit().clear().commit()
+            compose.activity.application.getSharedPreferences("draft-journal",0).edit().clear().commit()
             vm=LhsViewModel(compose.activity.application)
             compose.activity.setContent { LhsApp(vm) }
         }
-        compose.waitUntil(20000) { vm.state.value.ready }
+        awaitState("Application initialization") { vm.state.value.ready }
         vm.navigate("home")
+    }
+    @After fun releaseScenario() {
+        compose.runOnIdle { if(::vm.isInitialized)vm.viewModelScope.cancel() }
+        if(::database.isInitialized)database.close()
+        databaseInstance.set(null,null)
     }
     private fun click(text:String) { val node=compose.onNode(hasText(text) and hasClickAction());runCatching { node.performScrollTo() };node.performClick() }
     private fun text(tag:String,value:String) { compose.onNodeWithTag(tag).performScrollTo().performTextReplacement(value) }
-    private fun saved()=compose.waitUntil(20000) { vm.state.value.pending==0&&!vm.state.value.busy }
+    private fun saved()=awaitState("Durable save") { vm.state.value.pending==0&&!vm.state.value.busy }
     private fun snapshot(name:String) {
         compose.runOnIdle { val view=compose.activity.window.decorView;val b=android.graphics.Bitmap.createBitmap(view.width,view.height,android.graphics.Bitmap.Config.ARGB_8888);view.draw(android.graphics.Canvas(b));val f=java.io.File("build/verification/$name.png");f.parentFile!!.mkdirs();f.outputStream().use { b.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) };b.recycle() }
     }

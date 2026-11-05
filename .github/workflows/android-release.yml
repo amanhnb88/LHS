@@ -51,6 +51,17 @@ jobs:
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
+      - name: Upload test reports and UI captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LHS-test-results-${{ github.sha }}
+          path: |
+            app/build/reports/tests/testReleaseUnitTest/
+            app/build/test-results/testReleaseUnitTest/
+            app/build/verification/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Remove temporary signing file
         if: always()
         run: rm -f "$RUNNER_TEMP/lhs-release.jks"
