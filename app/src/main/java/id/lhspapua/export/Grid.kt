@@ -4,7 +4,7 @@ import id.lhspapua.domain.*
 
 /** One physical grid drives both vector PDF and real OOXML cells. Coordinates in points. */
 data class Cell(val row: Int, val col: Int, val rows: Int=1, val cols: Int=1, val text: String="", val number: Long?=null, val formula: String?=null, val bold: Boolean=false, val center: Boolean=false, val border: Boolean=true, val money: Boolean=false, val size: Float=9f, val edges: Int=15)
-data class Sheet(val name: String, val landscape: Boolean, val widths: List<Double>, val heights: List<Double>, val cells: MutableList<Cell> = mutableListOf()) {
+data class Sheet(val name: String, val landscape: Boolean, val widths: List<Double>, val heights: List<Double>, val cells: MutableList<Cell> = mutableListOf(), val hidden: Boolean = false) {
     fun put(r:Int,c:Int,rs:Int=1,cs:Int=1,t:String="",n:Long?=null,f:String?=null,b:Boolean=false,center:Boolean=false,border:Boolean=true,money:Boolean=false,size:Float=9f,edges:Int=15) { cells.add(Cell(r,c,rs,cs,t,n,f,b,center,border,money,size,edges)) }
     fun ref(r:Int,c:Int)=column(c)+(r+1)
     companion object { fun column(index: Int): String { var n=index+1; var s=""; while(n>0) { s=('A'+(n-1)%26)+s; n=(n-1)/26 }; return s } }
@@ -69,7 +69,11 @@ object Layout {
                 val soldRefs=(0..2).map { s.ref(base+2+it,13) }
                 val f=when(k) {
                     1 -> "IF(COUNT(${soldRefs.joinToString(",")})=0,\"\",SUM(${soldRefs.joinToString(",")}))"
-                    4 -> if(r.rules.automaticTg) "IF(${s.ref(base+2,4)}=\"\",\"\",${s.ref(base+2,4)}-SUM(${s.ref(base+3,4)})${if(r.rules.subtractSample) "-SUM(${s.ref(base+4,4)})" else ""}${if(r.rules.subtractBonus) "-SUM(${s.ref(base+5,4)})" else ""})" else null
+                    4 -> if(stock.openingTracked) {
+                        val opening="'_StokAwal'!\$B\$${p+2}"
+                        val quantities=(0..2).map { s.ref(base+2+it,13) }.joinToString(",")
+                        "IF(OR($opening=\"\",${s.ref(base+2,4)}=\"\",${s.ref(base+4,4)}=\"\",${s.ref(base+5,4)}=\"\",COUNT($quantities)<3),\"\",$opening+${s.ref(base+2,4)}-SUM(${s.ref(base+3,4)},${s.ref(base+4,4)},${s.ref(base+5,4)}))"
+                    } else if(r.rules.automaticTg) "IF(${s.ref(base+2,4)}=\"\",\"\",${s.ref(base+2,4)}-SUM(${s.ref(base+3,4)})${if(r.rules.subtractSample) "-SUM(${s.ref(base+4,4)})" else ""}${if(r.rules.subtractBonus) "-SUM(${s.ref(base+5,4)})" else ""})" else null
                     else -> null
                 }
                 s.put(base+2+k,4,cs=6,n=quantities[k],f=f,edges=14)
@@ -98,7 +102,10 @@ object Layout {
             s.put(32,col,cs=span,t=Product.entries[p].label,b=true,center=true)
             listOf("DO","Sampel","TG").forEachIndexed { k,label ->
                 s.put(33+k,col,cs=3,t="$label :",size=8f,edges=11)
-                val f=if(k==2 && r.rules.automaticTg) "IF(${s.ref(33,col+3)}=\"\",\"\",${s.ref(33,col+3)}-SUM(${s.ref(34,col+3)}))" else null
+                val f=if(k==2 && t.openingTracked) {
+                    val opening="'_StokAwal'!\$C\$${p+2}"
+                    "IF(OR($opening=\"\",${s.ref(33,col+3)}=\"\",${s.ref(34,col+3)}=\"\"),\"\",$opening+${s.ref(33,col+3)}-${s.ref(34,col+3)})"
+                } else if(k==2 && r.rules.automaticTg) "IF(${s.ref(33,col+3)}=\"\",\"\",${s.ref(33,col+3)}-SUM(${s.ref(34,col+3)}))" else null
                 s.put(33+k,col+3,cs=span-3,n=listOf(t.delivery,t.sample,Calculation.tg(t,r.rules))[k],f=f,size=8f,edges=14)
             }
         }
@@ -116,10 +123,11 @@ object Layout {
                     val missing=(0..2).flatMap { p -> (0..2).map { t -> val row=8+p*8+t; "AND(${s.ref(row,13)}>0,${s.ref(row,16)}=\"\")" } }.joinToString(",")
                     "IF(OR($missing),\"\",IF(COUNT(${refs.joinToString(",")})=0,\"\",SUM(${refs.joinToString(",")})))"
                 }
-                6 -> {
+                6 -> if(!r.rules.automaticFinance || !r.rules.acknowledged) null else {
                     val missing=(0..2).flatMap { p -> (0..2).map { t -> val row=8+p*8+t; "AND(${s.ref(row,13)}>0,${s.ref(row,16)}=\"\")" } }.joinToString(",")
                     val range="F40:F45"
-                    "IF(OR($missing),\"\",IF(COUNT($range)=0,\"\",SUM(F41,F40)${signed(r.rules.debtSign,"F42")}${signed(r.rules.settlementSign,"F43")}${signed(r.rules.transferSign,"F44")}${signed(r.rules.expenseSign,"F45")}))"
+                    val condition=if(r.formatVersion>=2) "COUNT($range)<6" else "COUNT($range)=0"
+                    "IF(OR($missing),\"\",IF($condition,\"\",SUM(F41,F40)${signed(r.rules.debtSign,"F42")}${signed(r.rules.settlementSign,"F43")}${signed(r.rules.transferSign,"F44")}${signed(r.rules.expenseSign,"F45")}))"
                 }
                 else -> null
             }
@@ -133,6 +141,19 @@ object Layout {
         s.put(start,19,cs=5,t="Dibuat Oleh :",b=true)
         s.put(start+1,19,rs=6,cs=5,t=f.madeBy,center=true)
         return s
+    }
+    fun dailyWorkbook(r:DailyReport):List<Sheet> {
+        val main=daily(r)
+        if(r.formatVersion<2) return listOf(main)
+        val helper=Sheet("_StokAwal",false,listOf(110.0,80.0,80.0,180.0),List(4){18.0},hidden=true)
+        listOf("Produk","Stok Awal","Stok Awal Tester","Sumber / Penyesuaian").forEachIndexed { c,t->helper.put(0,c,t=t) }
+        Product.entries.forEachIndexed { p,product ->
+            helper.put(p+1,0,t=product.label)
+            helper.put(p+1,1,n=r.products[p].opening)
+            helper.put(p+1,2,n=r.testers[p].opening)
+            helper.put(p+1,3,t=r.stockSourceId ?: r.openingNote)
+        }
+        return listOf(main,helper)
     }
     private fun noteLines(text:String):List<String> = text.lines().flatMap { paragraph ->
         val result=mutableListOf<String>(); var line=""

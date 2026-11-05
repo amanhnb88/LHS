@@ -21,11 +21,26 @@ object Calculation {
     fun sold(s: Stock) = sum(s.sales.map { it.quantity })
     fun productTotal(s: Stock): Long? = if (s.sales.any { (it.quantity ?: 0) > 0 && it.price == null }) null else sum(s.sales.map(::subtotal))
     fun total(r: DailyReport): Long? = if (r.products.any { it.sales.any { s -> (s.quantity ?: 0) > 0 && s.price == null } }) null else sum(r.products.map(::productTotal))
-    fun tg(s: Stock, r: Rules): Long? = if (!r.automaticTg) s.manualTg else s.delivery?.let { bounded(it - (sold(s) ?: 0) - (if(r.subtractSample) s.sample ?: 0 else 0) - (if(r.subtractBonus) s.bonus ?: 0 else 0)) }
-    fun tg(t: Tester, r: Rules): Long? = if (!r.automaticTg) t.manualTg else t.delivery?.let { bounded(it - (t.sample ?: 0)) }
+    fun available(s: Stock): Long? = if(s.opening==null || s.delivery==null) null else bounded(Math.addExact(s.opening,s.delivery))
+    fun tg(s: Stock, r: Rules): Long? {
+        if(s.openingTracked) {
+            if(s.opening==null || s.delivery==null || s.sample==null || s.bonus==null || s.sales.any { it.quantity==null }) return null
+            return bounded(available(s)!! - (sold(s) ?: 0) - s.sample - s.bonus)
+        }
+        return if (!r.automaticTg) s.manualTg else s.delivery?.let { bounded(it - (sold(s) ?: 0) - (if(r.subtractSample) s.sample ?: 0 else 0) - (if(r.subtractBonus) s.bonus ?: 0 else 0)) }
+    }
+    fun tg(t: Tester, r: Rules): Long? {
+        if(t.openingTracked) {
+            if(t.opening==null || t.delivery==null || t.sample==null) return null
+            return bounded(Math.addExact(t.opening,t.delivery) - t.sample)
+        }
+        return if (!r.automaticTg) t.manualTg else t.delivery?.let { bounded(it - (t.sample ?: 0)) }
+    }
     fun balance(r: DailyReport): Long? {
         if (r.products.any { it.sales.any { s -> (s.quantity ?: 0) > 0 && s.price == null } }) return null
         val f = r.finance
+        if(!r.rules.automaticFinance) return f.manualBalance
+        if(r.formatVersion>=2 && listOf(f.previous,f.debt,f.settlement,f.transfer,f.expense).any { it==null }) return null
         val numbers = listOf(f.previous, total(r), f.debt?.times(r.rules.debtSign), f.settlement?.times(r.rules.settlementSign), f.transfer?.times(r.rules.transferSign), f.expense?.times(r.rules.expenseSign))
         return sum(numbers)
     }
@@ -35,27 +50,37 @@ object Calculation {
             if(o.name.isBlank()) add("Outlet ${i+1}: nama belum diisi.")
             o.quantities.forEachIndexed { p,q ->
                 if(q.stock != null && q.sold != null && q.sold > q.stock) add("Outlet ${i+1}, ${Product.entries[p].label}: Jual melebihi Stok.")
-                if(q.stock == null && q.sold != null) add("Outlet ${i+1}, ${Product.entries[p].label}: Stok belum diisi.")
+                if(q.stock == null) add("Outlet ${i+1}, ${Product.entries[p].label}: Stok belum diisi.")
+                if(q.sold == null) add("Outlet ${i+1}, ${Product.entries[p].label}: Jual belum diisi.")
             }
         }
         runCatching { Product.entries.indices.forEach { calls(r,it,true); calls(r,it,false) } }.exceptionOrNull()?.let { add(it.message ?: "Angka terlalu besar.") }
     }
     fun errors(r: DailyReport): List<String> = buildList {
-        if(!r.rules.acknowledged) add("Verifikasi makna TG dan aturan keuangan pada Pengaturan Rumus laporan ini.")
+        if(r.rules.automaticFinance && !r.rules.acknowledged) add("Aturan saldo belum disetujui. Verifikasi sekali di Pengaturan Lanjutan, atau gunakan Saldo Akhir manual.")
+        if(!r.rules.automaticFinance && r.finance.manualBalance==null) add("Saldo Akhir manual belum diisi.")
+        if(r.formatVersion>=2) {
+            addAll(stockErrors(r))
+            if(r.identity.sales.isBlank() || r.identity.stockOwnerId.isBlank()) add("Pilih atau isi Sales pada Informasi Harian.")
+            if(r.stockStale) add(r.stockIssue.ifBlank { "Stok berubah dari laporan sebelumnya. Periksa ulang laporan ini." })
+            if(listOf(r.finance.previous,r.finance.debt,r.finance.settlement,r.finance.transfer,r.finance.expense).any { it==null }) add("Lengkapi Keuangan; isi 0 untuk nilai yang tidak ada.")
+        }
         r.products.forEachIndexed { i,s ->
             val name = Product.entries[i].label
             s.sales.forEachIndexed { j,v -> if((v.quantity ?: 0)>0 && v.price == null) add("$name ${Tier.entries[j].label}: harga Belum Diatur.") }
-            if(s.delivery == null && (s.sales.any { it.quantity != null } || s.sample != null || s.bonus != null)) add("$name: DO belum diisi.")
+            if(!s.openingTracked && s.delivery == null && (s.sales.any { it.quantity != null } || s.sample != null || s.bonus != null)) add("$name: DO belum diisi.")
             runCatching {
-                if((tg(s,r.rules) ?: 0)<0) add("$name: stok tidak mencukupi (TG negatif).")
-                if(!r.rules.automaticTg && s.delivery != null && s.manualTg == null) add("$name: TG manual belum diisi.")
+                if(!s.openingTracked && (tg(s,r.rules) ?: 0)<0) add("$name: stok tidak mencukupi (TG negatif).")
+                if(!s.openingTracked && !r.rules.automaticTg && s.delivery != null && s.manualTg == null) add("$name: TG manual belum diisi.")
                 productTotal(s)
             }.exceptionOrNull()?.let { add("$name: angka hasil terlalu besar.") }
         }
         r.testers.forEachIndexed { i,t ->
-            if(t.delivery == null && t.sample != null) add("Tester ${Product.entries[i].label}: DO belum diisi.")
-            if((tg(t,r.rules) ?: 0)<0) add("Tester ${Product.entries[i].label}: stok tidak mencukupi.")
-            if(!r.rules.automaticTg && t.delivery != null && t.manualTg == null) add("Tester ${Product.entries[i].label}: TG manual belum diisi.")
+            if(!t.openingTracked) runCatching {
+                if(t.delivery == null && t.sample != null) add("Tester ${Product.entries[i].label}: DO belum diisi.")
+                if((tg(t,r.rules) ?: 0)<0) add("Tester ${Product.entries[i].label}: stok tidak mencukupi.")
+                if(!r.rules.automaticTg && t.delivery != null && t.manualTg == null) add("Tester ${Product.entries[i].label}: TG manual belum diisi.")
+            }.onFailure { add("Angka tester terlalu besar.") }
         }
         runCatching { total(r); balance(r) }.exceptionOrNull()?.let { add("Total terlalu besar untuk diekspor secara akurat.") }
     }
@@ -71,9 +96,12 @@ object Calculation {
         require(r.id.matches(Regex("[a-f0-9-]{36}"))) { "ID laporan tidak valid." }
         require(r.products.size == 3 && r.testers.size == 3)
         require(listOf(r.rules.debtSign,r.rules.settlementSign,r.rules.transferSign,r.rules.expenseSign).all { it == 1 || it == -1 })
-        require(r.products.all { it.sales.size == 3 && listOf(it.delivery,it.sample,it.bonus,it.manualTg).all(::validInput) && it.sales.all { s -> validInput(s.quantity) && validInput(s.price) } })
-        require(r.testers.all { listOf(it.delivery,it.sample,it.manualTg).all(::validInput) })
-        require(listOf(r.finance.previous,r.finance.debt,r.finance.settlement,r.finance.transfer,r.finance.expense).all(::validInput))
+        require(r.products.all { it.sales.size == 3 && listOf(it.delivery,it.sample,it.bonus,it.manualTg,it.opening).all(::validInput) && it.sales.all { s -> validInput(s.quantity) && validInput(s.price) } })
+        require(r.testers.all { listOf(it.delivery,it.sample,it.manualTg,it.opening).all(::validInput) })
+        require(validSigned(r.finance.previous) && validSigned(r.finance.manualBalance))
+        require(listOf(r.finance.debt,r.finance.settlement,r.finance.transfer,r.finance.expense).all(::validInput))
+        require(r.formatVersion in 1..2 && r.stockSequence>0 && r.revision>=0)
+        if(r.formatVersion>=2) require(r.products.all { it.openingTracked } && r.testers.all { it.openingTracked })
         java.time.LocalDate.parse(r.identity.date)
     }
     fun validate(s: Settings) {
@@ -81,5 +109,19 @@ object Calculation {
         require(listOf(s.rules.debtSign,s.rules.settlementSign,s.rules.transferSign,s.rules.expenseSign).all { it==1||it == -1 }) { "Aturan saldo tidak valid." }
         java.time.LocalDate.parse(s.profile.date)
     }
+    fun stockErrors(r: DailyReport): List<String> = buildList {
+        if(r.formatVersion<2) { add("Stok awal laporan lama belum diverifikasi."); return@buildList }
+        r.products.forEachIndexed { p,s ->
+            if(s.opening==null) add("${Product.entries[p].label}: isi Stok Awal atau ambil dari laporan sebelumnya.")
+            if(s.delivery==null || s.sample==null || s.bonus==null || s.sales.any { it.quantity==null }) add("${Product.entries[p].label}: jumlah belum lengkap. Isi 0 jika tidak ada.")
+            runCatching { if((tg(s,r.rules) ?: 0)<0) add("${Product.entries[p].label}: stok tidak mencukupi.") }.onFailure { add("${Product.entries[p].label}: angka stok terlalu besar.") }
+        }
+        r.testers.forEachIndexed { p,t ->
+            if(t.opening==null) add("Tester ${Product.entries[p].label}: Stok Awal Tester belum diisi.")
+            if(t.delivery==null || t.sample==null) add("Tester ${Product.entries[p].label}: jumlah belum lengkap.")
+            runCatching { if((tg(t,r.rules) ?: 0)<0) add("Tester ${Product.entries[p].label}: stok tidak mencukupi.") }.onFailure { add("Angka tester terlalu besar.") }
+        }
+    }
+    fun validSigned(v: Long?) = v==null || v in -MAX..MAX
     fun validInput(v: Long?) = v == null || v in 0..MAX
 }

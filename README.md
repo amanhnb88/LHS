@@ -2,29 +2,40 @@
 
 Aplikasi Android native Kotlin / Jetpack Compose untuk sales Papua. Android 8.0 (API 26) atau lebih baru. Seluruh data lokal, tanpa login, server, WebView atau izin internet.
 
-## Penggunaan
+## Penggunaan versi 1.1.0
 
-1. Buka **Pengaturan**: simpan profil sales, harga G/SG/RTL untuk MARTIL 12, MARTIL dan HD LIGHT, lalu verifikasi makna TG dan aturan saldo dengan perusahaan.
-2. Pilih **CALLSHEET** atau **LAPORAN HARIAN** untuk membuat laporan baru. Transaksi kedua formulir independen, termasuk pada tanggal yang sama.
-3. Callsheet: Tambah Outlet, isi stok dan jual, Simpan dan Lanjut. Nama/alamat outlet dapat dipakai ulang. Setiap halaman ekspor berisi 30 baris.
-4. Laporan Harian: buka kartu produk, isi DO, G/SG/RTL, sample, bonus. Isi Tester dan Keuangan lewat tab masing-masing. Harga dan aturan disimpan dalam laporan; pengaturan baru tidak mengubah riwayat.
-5. Buka **Ringkasan & Ekspor**, periksa validasi, buat PDF atau Excel, kemudian Simpan atau Bagikan.
-6. Foto/PDF bukti diambil melalui pemilih dokumen Android dan disalin ke penyimpanan internal. Saat dibagikan bersama laporan, lampiran tetap berupa file terpisah.
-7. Backup ZIP melalui Pengaturan. Simpan backup secara berkala sebelum menghapus data aplikasi atau mengganti HP. Pemulihan menggabungkan ID dan mengganti laporan dengan ID yang sama setelah konfirmasi.
+Beranda hanya memuat Callsheet, Laporan Harian, Riwayat Laporan, dan Pengaturan. Setiap perubahan masuk antrean penyimpanan Room; status **Tersimpan** muncul setelah antrean selesai. Jika penyimpanan gagal, status dan tombol coba lagi ditampilkan. Tidak perlu tombol Simpan harian yang berulang.
 
-Perubahan disimpan ke Room melalui antrean terurut tanpa debounce. Status menampilkan hasil penyimpanan. Tombol Simpan mengulang penyimpanan jika sebelumnya gagal. Nilai kosong tetap berbeda dari 0. Harga kosong tidak dihitung sebagai Rp0. Stok negatif/harga belum diatur/aturan belum diverifikasi menghalangi ekspor final.
+- **Callsheet:** tanggal dan sales → Tambah Outlet → nama/alamat → tiga baris produk dengan Stok/Jual berdampingan → **Simpan & Outlet Berikutnya**. Pilih **Lihat Daftar Outlet** untuk mencari, mengedit, atau menghapus dengan konfirmasi. **Lihat Ringkasan** membuka total dan ekspor. Outlet tersimpan hanya mengisi nama/alamat; transaksi baru tetap kosong.
+- **Laporan Harian:** lima langkah **Informasi Harian → Stok & Barang Masuk → Penjualan → Tester → Keuangan**. Pilih produk melalui tiga tab. Jumlah penjualan memakai harga snapshot, dengan opsi ubah harga khusus laporan. Back mempertahankan input. **Periksa Laporan** menampilkan validasi; **Selesaikan Laporan** menetapkannya final. Laporan final harus dibuka kembali dengan konfirmasi sebelum diedit.
+- **Pratinjau PDF:** pertama kali menampilkan halaman utuh. Tersedia lebar layar, perbesar/perkecil, pinch/pan, reset halaman utuh dan navigasi halaman. Skala pratinjau tidak mengubah ukuran fisik PDF.
+- **Pengaturan:** Profil Sales, Harga Produk, Data Outlet, Backup dan Pemulihan, serta Pengaturan Lanjutan. Aturan keuangan hanya diverifikasi sekali. Foto/PDF bukti disalin ke penyimpanan internal dan dibagikan sebagai file terpisah.
 
-## Perhitungan
+Callsheet dan Laporan Harian mempunyai identitas, transaksi, riwayat dan ekspor sendiri. Tidak ada pengambilan transaksi atau stok dari Callsheet ke Laporan Harian.
 
-Satu domain calculation layer (`domain/Calculation.kt`), integer Long. Input dan hasil dibatasi 15 digit agar tetap tepat saat disimpan ke Excel. Perkalian dan penjumlahan memakai pemeriksaan overflow. Tidak ada floating point untuk nilai Rupiah.
+## Perhitungan dan stok antarhari
 
-- Subtotal = jumlah × harga; Jual = jumlah G + SG + RTL; total = seluruh subtotal.
-- Awal TG = DO − Jual − Sample − Bns; TG Tester = DO − Sampel. Makna TG masih asumsi, harus diverifikasi. Bisa manual; pengurangan sample/bonus dapat diatur.
-- Awal saldo = saldo sebelum + penjualan − piutang + pelunasan − transfer − pengeluaran. Arah tiap komponen bisa diatur dan rumus aktif ditampilkan.
+Satu domain calculation layer (`domain/Calculation.kt`), integer Long. Input dan hasil dibatasi 15 digit agar tetap tepat di Excel. Kosong berbeda dari 0; harga kosong tidak dianggap Rp0. Angka terlalu besar, stok negatif dan input belum lengkap menghalangi finalisasi.
+
+- **DO adalah barang baru dari gudang**, bukan stok tersedia. **TG adalah Tutup Ganti / Sisa Stok Akhir.**
+- Stok tersedia = Stok Awal + DO. Jual = G + SG + RTL. TG = Stok Awal + DO − Jual − Sample − Bns.
+- Tester mempunyai ledger sendiri: TG Tester = Stok Awal Tester + DO Tester − Sampel Tester.
+- Subtotal kategori = jumlah × harga; Total Produk = seluruh subtotal produk; Total Penjualan = seluruh produk.
+- Rumus awal saldo = Saldo Sebelum + Total Penjualan − Piutang + Pelunasan − Transfer − Pengeluaran. Arti komponen serta arahnya harus disetujui di Pengaturan Lanjutan sebelum finalisasi, atau pilih Saldo Akhir manual yang tervalidasi. Aturan dan harga disimpan per laporan.
+
+`domain/StockLedger.kt` mencari laporan **final valid terakhir** sebelum tanggal/urutan aktif dengan ID pemilik stok yang sama. Hari tanpa laporan boleh dilewati. Urutan pada tanggal sama eksplisit dan duplikat ditolak. Draf biasa dan laporan versi lama bukan sumber stok. Jika belum ada sumber, Stok Awal barang jual dan tester tetap kosong sampai pengguna mencatatnya; tidak diubah menjadi nol secara otomatis.
+
+Perubahan sumber menghitung ulang draf terkait dan memberi pemberitahuan. Angka laporan final terkait dibekukan dan ditandai untuk diperiksa, termasuk rantai sesudahnya. Sumber yang dibuka kembali menghalangi penggunaan stok sampai difinalisasi ulang. Penyesuaian manual Stok Awal memerlukan konfirmasi dan tersimpan bersama laporan.
+
+## Kompatibilitas data
+
+Application ID tetap `id.lhspapua`; versi 1.1.0 memakai versionCode 2 dan kunci penandatanganan yang sama. SQL Room tetap schema version 1, tanpa destructive migration. Kolom baru bersifat tambahan pada payload JSON dengan nilai default aman. Laporan lama mempertahankan ID, transaksi, harga, aturan, lampiran dan hasil rumus lamanya. Konversi ke pencatatan Stok Awal hanya melalui tindakan **Lengkapi Stok Awal Laporan Lama** dan konfirmasi.
+
+Backup versi 2 mempertahankan sumber, urutan, pembukaan stok, status final dan lampiran. Restore menerima versi 1 dan 2, memvalidasi sebelum transaksi, lalu merekonsiliasi seluruh laporan bersama. Simpan backup sebelum mengganti HP atau menghapus data aplikasi.
 
 ## Ekspor
 
-`export/Layout` menghasilkan satu grid fisik untuk PDF vektor dan XLSX OOXML asli. Callsheet A4 landscape, LHS A4 portrait, margin 10 mm. Merged cells, print area, A4, orientasi, angka bertipe numerik, formula aktif dan force recalculation. Input teks selalu inline string (aman dari formula injection). Nilai formula menggunakan cache dari domain yang sama. Tidak menggunakan POI di APK; POI hanya untuk memverifikasi formula saat unit test. Setiap halaman Callsheet mempunyai JUMLAH halaman tersebut; ringkasan Android memuat total seluruh outlet. Teks yang tidak muat bahkan pada 6 pt ditolak dengan pesan agar dipendekkan, bukan dipotong diam-diam.
+`export/Layout` menghasilkan satu grid fisik untuk PDF vektor dan XLSX OOXML asli. Callsheet A4 landscape, LHS A4 portrait, margin 10 mm. Merged cells, print area, A4, orientasi, angka bertipe numerik, formula aktif dan force recalculation. Stok Awal internal berada pada worksheet tersembunyi `_StokAwal`, bukan kolom baru di formulir resmi. Rumus TG merujuk worksheet tersebut; saldo manual disimpan sebagai angka, bukan rumus yang belum disetujui. Input teks selalu inline string (aman dari formula injection). Nilai formula menggunakan cache dari domain yang sama. Tidak menggunakan POI di APK; POI hanya untuk memverifikasi formula saat unit test. Setiap halaman Callsheet mempunyai JUMLAH halaman tersebut; ringkasan Android memuat total seluruh outlet. Teks yang tidak muat bahkan pada 6 pt ditolak dengan pesan agar dipendekkan, bukan dipotong diam-diam.
 
 ## Build
 

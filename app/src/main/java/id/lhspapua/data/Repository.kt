@@ -23,11 +23,37 @@ class Repository(private val context: Context, private val db: LhsDatabase = Lhs
     suspend fun settings() = dao.settings()?.let { json.decodeFromString<Settings>(it.payload) } ?: Settings()
     suspend fun save(s: Settings) { Calculation.validate(s); dao.save(SettingsEntity(payload=json.encodeToString(s))) }
     suspend fun save(r: CallReport) { Calculation.validate(r); dao.save(CallEntity(r.id,r.identity.date,r.identity.sales,json.encodeToString(r))) }
-    suspend fun save(r: DailyReport) { Calculation.validate(r); dao.save(DailyEntity(r.id,r.identity.date,r.identity.sales,json.encodeToString(r))) }
+    suspend fun save(r: DailyReport) { saveDay(r) }
+    private suspend fun writeDay(r:DailyReport) { Calculation.validate(r); dao.save(DailyEntity(r.id,r.identity.date,r.identity.sales,json.encodeToString(r))) }
+    suspend fun allDaily() = dao.allDaily().map { json.decodeFromString<DailyReport>(it.payload) }
+    suspend fun saveDay(r:DailyReport):StockLedger.Result = db.withTransaction {
+        val result=StockLedger.reconcile(allDaily(),r)
+        result.reports.forEach { writeDay(it) }; result
+    }
+    suspend fun finalizeDay(id:String):StockLedger.Result = db.withTransaction {
+        val existing=daily(id) ?: error("Laporan tidak ditemukan.")
+        val prepared=saveDay(existing).reports.first { it.id==id }
+        val errors=Calculation.errors(prepared)
+        require(errors.isEmpty()) { errors.joinToString("\n") }
+        saveDay(prepared.copy(status=ReportStatus.FINAL,wasFinalized=true,finalizedAt=java.time.Instant.now().toString()))
+    }
+    suspend fun reopen(id:String):StockLedger.Result = db.withTransaction {
+        val r=daily(id) ?: error("Laporan tidak ditemukan.")
+        saveDay(r.copy(status=ReportStatus.DRAFT,finalizedAt=null))
+    }
     suspend fun call(id: String) = dao.call(id)?.let { json.decodeFromString<CallReport>(it.payload) }
     suspend fun daily(id: String) = dao.day(id)?.let { json.decodeFromString<DailyReport>(it.payload) }
     suspend fun deleteCall(id: String) = dao.deleteCall(id)
-    suspend fun deleteDaily(id: String) { dao.deleteDaily(id) } // orphan cleanup happens only on explicit storage cleanup
+    suspend fun deleteDaily(id: String) = db.withTransaction {
+        val all=allDaily(); dao.deleteDaily(id)
+        val remaining=all.filterNot { it.id==id }
+        if(remaining.isNotEmpty()) {
+            // A deleted predecessor cannot silently become a different source for a final report.
+            val orphaned=remaining.map { if(it.stockSourceId==id) it.copy(stockStale=true,stockIssue="Sumber stok telah dihapus. Periksa ulang Stok Awal laporan ini.") else it }
+            val result=StockLedger.reconcile(orphaned,orphaned.first())
+            result.reports.forEach { writeDay(it) }
+        }
+    } // orphan cleanup happens only on explicit storage cleanup
     fun attachment(a: Attachment): File {
         require(a.file.matches(Regex("[a-f0-9-]+\\.(jpg|png|webp|pdf)"))) { "Nama lampiran tidak valid." }
         return File(context.filesDir,"attachments/${a.file}")
@@ -80,7 +106,7 @@ class Repository(private val context: Context, private val db: LhsDatabase = Lhs
                 }
             }
             val data=json.decodeFromString<Backup>(File(stage,"reports.json").readText())
-            require(data.version==1) { "Versi backup belum didukung." }
+            require(data.version in 1..2) { "Versi backup belum didukung." }
             data.calls.forEach(Calculation::validate); data.daily.forEach(Calculation::validate)
             Calculation.validate(data.settings)
             // Attachments get fresh IDs to avoid overwriting files referenced by current reports.
@@ -92,7 +118,9 @@ class Repository(private val context: Context, private val db: LhsDatabase = Lhs
                     val replacement=a.copy(file="${UUID.randomUUID()}.${a.file.substringAfterLast('.')}")
                     val f=attachment(replacement); f.parentFile!!.mkdirs(); source.copyTo(f); newFiles.add(f); replacement
                 } }) }
-                db.withTransaction { data.calls.forEach { save(it) }; restored.forEach { save(it) }; save(data.settings) }
+                db.withTransaction { data.calls.forEach { save(it) }; restored.forEach { writeDay(it) }; save(data.settings)
+                    val all=allDaily()
+                    if(all.isNotEmpty()) StockLedger.reconcile(all,all.first()).reports.forEach { writeDay(it) } }
             } catch(e: Exception) { newFiles.forEach { it.delete() }; throw e }
         } finally { stage.deleteRecursively() }
     }

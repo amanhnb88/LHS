@@ -1,54 +1,76 @@
-# Verifikasi LHS Papua 1.0.0
+# Verifikasi LHS Papua 1.1.0 — Stage 2
 
-Repository `amanhnb88/LHS`, branch `main`. Baseline awal `2804fcf8059875f7d3c92f1e38d2191fca392edd` hanya berisi README. Implementasi ini tidak membuat branch, PR, fork, atau workflow otomatis pada push.
+Repository `amanhnb88/LHS`, branch `main`, baseline `a59e4551fb2565296e13b42a4932ada2c3d88115`. Proyek Android yang sudah ada dilanjutkan; tidak ada branch/PR/fork atau workflow baru. Application ID tetap `id.lhspapua`, versionCode 2, versionName 1.1.0, minimum Android 8.0/API 26.
 
-## Implementasi
+## Perubahan alur
 
-- Kotlin native, Compose Material 3, Room, ViewModel/StateFlow dan Coroutines. Package `id.lhspapua`, versi 1.0.0 (1), Android minimal 8.0/API 26.
-- Callsheet dan Laporan Harian memakai tabel database serta ID independen, dengan profil sales sebagai isian awal identitas saja.
-- Tiga produk tetap: MARTIL 12, MARTIL, HD LIGHT. Harga G/SG/RTL dan aturan rumus disimpan sebagai snapshot pada tiap Laporan Harian.
-- Input vertikal, outlet tersimpan, pencarian, riwayat, edit, autosave, konfirmasi hapus, tanggal yang dapat diganti, tester, keuangan, lampiran, backup/pemulihan ZIP.
-- PDF vektor dan XLSX OOXML asli, ekspor terpisah, SAF untuk menyimpan dan content URI/FileProvider untuk Sharesheet. Tidak ada izin internet, login atau backend.
-- Draf outlet yang sama sekali belum diisi tidak dimasukkan ke ekspor; draf dengan sebagian data tetap divalidasi. Teks yang melebihi ruang pada 6 pt diberi penjelasan untuk dipendekkan, tanpa pemotongan diam-diam.
+| Sebelum | Sesudah |
+|---|---|
+| Enam kotak jumlah outlet disusun vertikal | Tiga baris produk, masing-masing Stok/Jual berdampingan |
+| Tombol Simpan bertumpuk dengan ringkasan | Autosave + satu tombol utama Simpan & Outlet Berikutnya; ringkasan dibuka setelah input |
+| Seluruh produk harian berupa formulir panjang | Lima langkah, tiga tab produk, total langsung terlihat |
+| Pengaturan rumus menonjol saat input | Pengaturan Lanjutan terpisah; verifikasi keuangan sekali atau saldo manual |
+| Pratinjau dokumen eksternal tanpa kontrol viewport | Dialog native dengan halaman utuh, lebar layar, zoom/pan/reset dan pergantian halaman |
+
+Callsheet: identitas → tambah/pilih outlet → tiga baris produk → outlet berikutnya → daftar/edit/cari/hapus dengan konfirmasi → ringkasan → PDF/Excel. Outlet kosong yang disediakan untuk kunjungan berikutnya dipakai ulang agar nomor tidak meloncat. Nama/alamat tersimpan tidak menyalin jumlah transaksi lama.
+
+Harian: Informasi Harian → Stok & Barang Masuk → Penjualan → Tester → Keuangan → Periksa Laporan → Selesaikan Laporan → ekspor. Back mempertahankan input; langkah aktif dipulihkan. Laporan final harus dibuka kembali dengan konfirmasi untuk diedit. Callsheet dan harian tetap independen.
 
 ## Pengujian otomatis
 
-`testReleaseUnitTest` menjalankan 17 pengujian, 0 gagal, 0 dilewati:
+`testReleaseUnitTest` menjalankan **31 pengujian, 0 gagal, 0 dilewati**:
 
-| Area | Pengujian | Hasil |
-|---|---:|---|
-| Domain perhitungan | 8 | Lulus |
-| Ekspor PDF/XLSX | 5 | Lulus |
-| Penyimpanan dan backup | 3 | Lulus |
-| Alur Compose native | 1 | Lulus |
+| Area | Jumlah |
+|---|---:|
+| Perhitungan dan regresi versi lama | 8 |
+| Ledger stok antarhari | 6 |
+| Ekspor PDF/Excel dan regresi | 8 |
+| Room, kompatibilitas payload, backup/lampiran | 5 |
+| Matematika viewport dan URI Sharesheet | 2 |
+| Interaksi Compose native, Robolectric API 34 | 2 |
 
-Contoh yang diuji per produk: DO 100, G 10 × 10.000, SG 5 × 11.000, RTL 2 × 12.000, Sample 2, Bns 1 menghasilkan Jual 17, total Rp179.000 dan TG 80. Tiga produk menghasilkan Rp537.000; saldo sebelumnya 50.000, piutang 20.000, pelunasan 5.000, transfer 100.000 dan pengeluaran 10.000 menghasilkan saldo akhir Rp462.000.
+Tes Compose mencatat 10 outlet × tiga produk, mengedit penjualan, mencari outlet, memeriksa total, membatalkan lalu menyetujui hapus, memakai ulang outlet kosong dan berpindah formulir. Tes harian mengisi Stok Awal/DO ketiga produk, melewati lima langkah, mencatat tester terpisah, mengisi saldo, kembali dan memeriksa ringkasan. Tangkapan layar native simulasi diperiksa untuk input outlet, stok, penjualan, dan keuangan. Ini bukan pengujian pada HP fisik.
 
-Kasus lain mencakup kosong versus 0, harga belum diatur, angka 15 digit/overflow, stok tidak mencukupi, TG manual dan aturan yang diubah, snapshot harga, Callsheet 1/30/31/61 outlet, nama/alamat panjang, teks outlet `=1+1` yang tetap teks, buka ulang database, pemisahan kedua laporan, penggantian isi backup, lampiran, serta penolakan path traversal pada ZIP.
+## Stok dan keuangan
 
-Pengujian native menggunakan Robolectric: API 28 untuk Room/backup dan API 34 untuk membuka Callsheet, mengisi outlet, kembali ke daftar, membuka Laporan Harian, Tester dan Keuangan. `NativeFlowTest` juga disediakan untuk perangkat melalui `connectedDebugAndroidTest`, tetapi belum dijalankan pada perangkat fisik.
+- Contoh resmi: Stok Awal 50 + DO 200 − Jual 150 − Sample 10 − Bns 5 = **TG 85**.
+- Laporan berikutnya (melewati hari tanpa laporan): Stok Awal otomatis 85 + DO 100 − Jual 120 − Sample 5 − Bns 0 = **TG 60**. Tetap benar setelah database ditutup dan dibuka kembali.
+- Tester terpisah: awal 5 + DO 10 − sampel 3 = **12**; berikutnya 12 + DO 1 − sampel 2 = **11**.
+- ID pemilik berbeda tidak berbagi stok. Draf biasa/laporan lama tidak menjadi sumber. Stok awal yang tidak diketahui tetap null. Tanggal sama memakai urutan eksplisit; urutan ganda menghalangi finalisasi.
+- Perubahan sumber menghitung ulang draf. Angka final berikutnya tetap utuh dan ditandai; rantai yang bergantung pada final bermasalah tidak mengambil sumber lama secara diam-diam. Pembukaan ulang sumber menjadi penghalang sampai diperiksa/final kembali.
+- Harga snapshot, kosong versus nol, stok negatif, harga belum diatur, batas integer 15 digit/overflow, laporan lama dan keuangan manual diuji.
+- Rumus awal saldo masih memerlukan persetujuan perusahaan melalui Pengaturan Lanjutan. Arah piutang/pelunasan/transfer/pengeluaran terlihat dan dapat diatur. Saldo manual menggunakan angka yang divalidasi, tanpa formula keuangan yang diasumsikan terkonfirmasi.
 
-## Verifikasi ekspor
+## PDF dan Excel A4
 
 | Formulir | PDF MediaBox (pt) | Excel |
 |---|---|---|
-| Callsheet | 841.8898 × 595.2756 | A4 landscape, Print Area, fit 1 halaman per sheet |
+| Callsheet | 841.8898 × 595.2756 | A4 landscape, Print Area, fit lebar 1 halaman |
 | Laporan Harian | 595.2756 × 841.8898 | A4 portrait, Print Area, fit 1 halaman |
 
-PDF diperiksa dengan PDFBox dan dirender menggunakan Poppler. Visual diperiksa terhadap dua gambar final di `docs/references/`. Ketiga produk, 30 baris Callsheet, stok/jual, stock/penjualan, tester, keuangan, Keterangan bergaris, pemisah dan Dibuat Oleh dipertahankan. Margin sekitar 10 mm. Callsheet tambahan menggunakan halaman/sheet baru; baris JUMLAH pada setiap halaman menjumlahkan halaman tersebut, sementara ringkasan Android menjumlahkan seluruh outlet.
+PDF vektor diperiksa dengan PDFBox dan dirender dengan Poppler; Excel dibuka ulang dan dihitung dengan Apache POI, kemudian diimpor/dihitung/dirender menggunakan mesin spreadsheet independen. Tidak ditemukan formula error pada sampel. Seluruh label, bentuk dan koordinat grid resmi tetap dipertahankan. Sampel visual dibandingkan dengan gambar final; margin sekitar 10 mm. Callsheet diuji 1/30/31/61 outlet, 30 baris per halaman, tanpa halaman kosong tambahan. JUMLAH per halaman menjumlahkan halaman tersebut, sedangkan ringkasan Android menjumlahkan semua outlet.
 
-XLSX dibuka ulang dan dihitung dengan Apache POI. Perubahan jumlah/harga pada cell input diuji untuk memperbarui subtotal, total produk, total penjualan, Jual, TG, TG Tester dan Saldo Akhir. Merged cells dan normal style diperiksa, lebar seluruh kolom positif, `paperSize=9`, orientasi/Print Area/fit-to-page dan force recalculation diverifikasi. Workbook juga diimpor serta dirender dengan mesin spreadsheet independen; tidak ditemukan formula error. Pemisah ribuan tampilan Excel mengikuti locale aplikasi spreadsheet; nilai Rupiah tetap numerik bulat dengan format `"Rp "#,##0`.
+Rumus aktif Excel diuji dengan mengubah jumlah, harga, DO dan stok awal: subtotal, total produk, seluruh penjualan, Jual, TG, TG Tester, dan saldo otomatis yang disetujui ikut berubah. Stok Awal berada pada sheet tersembunyi `_StokAwal` yang tidak mempunyai Print Area; formulir resmi tidak mendapat kolom tambahan. Saldo manual berupa cell numerik. Teks `=1+1` tetap string aman. Nilai rupiah integer; pemisah ribuan tampilan Excel mengikuti locale aplikasi spreadsheet.
 
-## Build, signing dan GitHub Actions
+## Data lama dan backup
 
-Build lokal `testReleaseUnitTest assembleRelease` dan lint vital release lulus. APK ditandatangani RSA 3072 dengan APK Signature Scheme v2 dan diverifikasi menggunakan Android `apksigner`. Kunci dan password tidak disimpan di repository. Cadangan signing diberikan terpisah secara pribadi.
+SQL Room tetap schema version 1; tidak diperlukan perubahan tabel dan tidak ada destructive migration. Field JSON baru mempunyai default kompatibel. Payload dengan field versi lama diuji setelah database ditutup/dibuka; ID, transaksi, harga dan hasil lama tetap sama. Laporan lama baru menggunakan pencatatan Stok Awal setelah tindakan konversi dengan konfirmasi, tanpa menghapus transaksi atau lampiran.
 
-Sertifikat SHA-256: `ba6db11cb0fdc995bd288463cc2596951ca8566775c926d7acccd2cf16b4a6b7`.
+Backup versi 2 mempertahankan ledger, status final, sumber, revisi dan lampiran. Restore versi 1 tetap diterima. Round-trip kedua versi, pemisahan formulir, salinan lampiran dan penolakan ZIP path traversal diuji. Laporan final yang diimpor direkonsiliasi bersama seluruh sumbernya agar urutan isi backup tidak mengubah perhitungan.
 
-Satu workflow `android-release.yml`, hanya `workflow_dispatch`, satu job, tanpa matrix, cache Gradle, concurrency dan timeout 25 menit. Tidak ada GitHub Actions yang dijalankan dalam pekerjaan ini: 0 run/0 menit. Konektor tidak menyediakan pembuatan Secrets maupun dispatch baru; sesi browser yang tersedia juga tidak memiliki akses repository ini. Empat Secrets belum dibuat. Untuk build Actions berikutnya, pemilik perlu memasang `LHS_KEYSTORE_BASE64`, `LHS_KEYSTORE_PASSWORD`, `LHS_KEY_ALIAS`, `LHS_KEY_PASSWORD` dari arsip recovery; script `scripts/configure-signing-secrets.py` tersedia untuk GitHub CLI. Karena itu belum ada artifact GitHub Actions; APK dikirim sebagai file unduhan langsung.
+## Release dan batas akses
 
-## Batas verifikasi
+Release memakai kunci lama; tidak ada keystore baru atau rahasia di source. Empat nama Secrets tetap `LHS_KEYSTORE_BASE64`, `LHS_KEYSTORE_PASSWORD`, `LHS_KEY_ALIAS`, `LHS_KEY_PASSWORD`.
 
-Belum dilakukan instalasi pada HP fisik, pemanggilan pemilih dokumen/Sharesheet pada HP, pengiriman nyata ke WhatsApp/Gmail, atau pembukaan file langsung di Microsoft Excel/WPS. Uji native yang lulus adalah simulasi Robolectric, bukan bukti pengujian seluruh alur pada perangkat pengguna. Asumsi TG/keuangan tetap memerlukan verifikasi perusahaan sebelum ekspor final; aplikasi meminta konfirmasi aturan tersebut.
+Satu workflow yang sama, `android-release.yml`, tetap manual `workflow_dispatch`, satu job, cache Gradle, tanpa matrix/push trigger. Nama artifact disesuaikan menjadi `LHS-Papua-1.1.0-signed`. Build dan pengujian Stage 2 dilakukan lokal agar tidak memakai kuota Actions. Run GitHub terakhir yang sudah berhasil untuk versi sebelumnya: https://github.com/amanhnb88/LHS/actions/runs/42021535910 .
 
-APK final: 7,369,583 byte. SHA-256: `283a7765ddf244fd49df09bf0ea53d12d97a836ecc57733ad965b00efea63e3f`.
+Konektor GitHub sesi ini tidak menyediakan operasi dispatch workflow baru atau upload artifact Actions. Tidak dilakukan rerun SHA lama. Untuk mendapatkan artifact Actions Stage 2, jalankan **Run workflow → main** pada workflow yang sama sesudah commit Stage 2. APK signed hasil build lokal disediakan langsung; jangan menyebut run versi lama sebagai build Stage 2.
+
+Belum diuji di HP fisik/emulator penuh: pemasangan upgrade, interupsi telepon/proses Android, keyboard/nav bar pada perangkat pengguna, render/pinch native PdfRenderer, pemilih dokumen, pengiriman nyata WhatsApp/Gmail, serta pembukaan langsung di Excel/WPS. Geometri preview dan URI izin berbagi diuji otomatis. Robolectric tidak menyediakan render PDF native yang nyata pada konfigurasi ini; tes render dua halaman disediakan di `NativeFlowTest` untuk `connectedDebugAndroidTest`, belum dijalankan. Sertifikat/app ID/versionCode dan kompatibilitas database diperiksa; ini bukan klaim upgrade fisik sudah diuji.
+
+## APK hasil build lokal
+
+`testReleaseUnitTest assembleRelease` dan lint vital release **lulus**. Android `apksigner verify --verbose --print-certs` menyatakan signature v2 valid, satu signer RSA 3072. Sertifikat SHA-256 sama dengan versi 1.0.0: `ba6db11cb0fdc995bd288463cc2596951ca8566775c926d7acccd2cf16b4a6b7`. `aapt dump badging` memverifikasi package `id.lhspapua`, versi 1.1.0/code 2, launcher LHS Papua, minSdk 26 dan targetSdk 35. Tidak ada izin internet.
+
+SHA-256 APK: `27ab07fe9a5b2f686eef3ca67fd95f9db096b3a9821d67d6acf1478aae701dc9`.
+Ukuran APK: 7,451,503 byte.
