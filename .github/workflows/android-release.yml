@@ -1,0 +1,53 @@
+name: Android signed release
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: lhs-release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Validate signing configuration
+        shell: bash
+        env:
+          KEYSTORE: ${{ secrets.LHS_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.LHS_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.LHS_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.LHS_KEY_PASSWORD }}
+        run: |
+          for name in KEYSTORE STORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then echo "Required signing secret missing: $name"; exit 1; fi
+          done
+          umask 077
+          printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/lhs-release.jks"
+      - name: Test and build signed APK
+        env:
+          LHS_KEYSTORE_PATH: ${{ runner.temp }}/lhs-release.jks
+          LHS_KEYSTORE_PASSWORD: ${{ secrets.LHS_KEYSTORE_PASSWORD }}
+          LHS_KEY_ALIAS: ${{ secrets.LHS_KEY_ALIAS }}
+          LHS_KEY_PASSWORD: ${{ secrets.LHS_KEY_PASSWORD }}
+        run: bash gradlew --no-daemon testReleaseUnitTest assembleRelease
+      - name: Verify signature
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LHS-Papua-1.0.0-signed
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Remove temporary signing file
+        if: always()
+        run: rm -f "$RUNNER_TEMP/lhs-release.jks"

@@ -1,0 +1,5 @@
+LHS Papua uses these open source components:
+AndroidX (Activity, Compose, Material3, Lifecycle, Core, Room, SQLite) - The Android Open Source Project, Apache License 2.0.
+Kotlin standard library, kotlinx.coroutines, kotlinx.serialization - JetBrains s.r.o. and contributors, Apache License 2.0.
+A copy of Apache License 2.0 is included as APACHE-2.0.txt.
+PDF and XLSX exporters are implemented in this project. PDFBox, Apache POI and Robolectric are test tools only and are not distributed in the APK.
