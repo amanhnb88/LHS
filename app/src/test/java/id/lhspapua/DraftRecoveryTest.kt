@@ -59,4 +59,53 @@ class DraftRecoveryTest {
         assertEquals(50L,vm.state.value.day!!.products[0].opening);assertNotNull(vm.state.value.error)
         vm.viewModelScope.cancel()
     }
+    @Test fun deleteDrainsAutosaveAndFinalReportsRemainProtected() {
+        val vm=LhsViewModel(app);until { vm.state.value.ready }
+        vm.newCall()
+        repeat(25) { n->vm.call { it.copy(outlets=List(3) { Outlet(name="Outlet ${n+1}") }) } }
+        val draft=vm.state.value.call!!
+        vm.flushPending()
+        vm.removeCall(draft,draftOnly=true)
+        vm.call { it.copy(identity=it.identity.copy(sales="Late callback")) }
+        until { vm.state.value.pending==0 }
+        assertNull(runBlocking { vm.repository.call(draft.id) })
+        assertNull(vm.state.value.call)
+        vm.newDay()
+        val day=vm.state.value.day!!
+        val finalCall=CallReport(completed=true)
+        val otherDay=newDaily(Identity(sales="Other"))
+        val finalDay=newDaily(Identity(sales="Final")).copy(status=ReportStatus.FINAL)
+        runBlocking { vm.repository.save(finalCall);vm.repository.save(otherDay);vm.repository.save(finalDay) }
+        vm.removeDay(day,draftOnly=true)
+        until { vm.state.value.pending==0 }
+        vm.removeCall(finalCall.copy(completed=false),draftOnly=true)
+        until { vm.state.value.pending==0 }
+        vm.removeDay(finalDay.copy(status=ReportStatus.DRAFT),draftOnly=true)
+        until { vm.state.value.pending==0 }
+        vm.viewModelScope.cancel()
+        val reopened=LhsViewModel(app);until { reopened.state.value.ready }
+        runBlocking {
+            assertNull(reopened.repository.call(draft.id))
+            assertNull(reopened.repository.daily(day.id))
+            assertEquals(otherDay,reopened.repository.daily(otherDay.id))
+            assertTrue(reopened.repository.call(finalCall.id)!!.completed)
+            assertEquals(ReportStatus.FINAL,reopened.repository.daily(finalDay.id)!!.status)
+        }
+        reopened.viewModelScope.cancel()
+    }
+    @Test fun recoveryCompletesJournaledDeletionBeforeReplayingDraftWrites() {
+        val vm=LhsViewModel(app);until { vm.state.value.ready }
+        val report=CallReport(identity=Identity(sales="Queued for removal"))
+        runBlocking { vm.repository.save(report) }
+        val key="call:${report.id}"
+        val journal=app.getSharedPreferences("draft-journal",0)
+        assertTrue(journal.edit().putString(key,vm.repository.json.encodeToString(report)).putBoolean("delete:$key",true).commit())
+        vm.viewModelScope.cancel()
+        val restarted=LhsViewModel(app);until { restarted.state.value.ready }
+        assertNull(runBlocking { restarted.repository.call(report.id) })
+        assertFalse(journal.contains(key))
+        assertFalse(journal.contains("delete:$key"))
+        restarted.viewModelScope.cancel()
+    }
+
 }

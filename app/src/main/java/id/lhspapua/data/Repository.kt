@@ -49,9 +49,14 @@ class Repository(private val context: Context, private val db: LhsDatabase = Lhs
     }
     suspend fun call(id: String) = dao.call(id)?.let { json.decodeFromString<CallReport>(it.payload) }
     suspend fun daily(id: String) = dao.day(id)?.let { json.decodeFromString<DailyReport>(it.payload) }
-    suspend fun deleteCall(id: String) = dao.deleteCall(id)
-    suspend fun deleteDaily(id: String) = db.withTransaction {
-        if(daily(id)?.independent == true) {
+    suspend fun deleteCall(id:String,draftOnly:Boolean=false) = db.withTransaction {
+        if(draftOnly)require(call(id)?.completed!=true) { "Callsheet final tidak dapat dihapus sebagai draft." }
+        dao.deleteCall(id)
+    }
+    suspend fun deleteDaily(id:String,draftOnly:Boolean=false) = db.withTransaction {
+        val report=daily(id) ?: return@withTransaction
+        if(draftOnly)require(report.status==ReportStatus.DRAFT) { "Laporan final tidak dapat dihapus sebagai draft." }
+        if(report.independent) {
             dao.deleteDaily(id)
             return@withTransaction
         }

@@ -73,11 +73,11 @@ internal val LocalInputCommit=staticCompositionLocalOf<()->Unit> { {} }
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll ?: rememberScrollState()).padding(16.dp),
                 verticalArrangement=Arrangement.spacedBy(12.dp)) { content();Spacer(Modifier.height(16.dp)) }
         }
-        if(!imeOpen)Surface(shadowElevation=2.dp) {
-            Column(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=6.dp)) {
-                SaveStatus(state,vm)
+        Surface(shadowElevation=2.dp) {
+            Column(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=if(imeOpen)0.dp else 6.dp)) {
+                if(!imeOpen)SaveStatus(state,vm)
                 Button(onClick={ focus.clearFocus();keyboard?.hide();onPrimary() },enabled=enabled&&!state.busy,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(primary) }
-                if(secondary!=null)TextButton(onClick={ focus.clearFocus();onSecondary() },modifier=Modifier.fillMaxWidth()) { Text(secondary) }
+                if(!imeOpen && secondary!=null)TextButton(onClick={ focus.clearFocus();onSecondary() },modifier=Modifier.fillMaxWidth()) { Text(secondary) }
             }
         }
     }

@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.dp
 import id.lhspapua.domain.*
 import java.io.File
 
-@Composable internal fun CallsheetScreen(r:CallReport,state:UiState,vm:LhsViewModel,save:(File)->Unit,share:(List<File>)->Unit) {
+@Composable internal fun CallsheetScreen(r:CallReport,state:UiState,vm:LhsViewModel,save:(List<File>)->Unit,share:(List<File>)->Unit) {
     var review by rememberSaveable(r.id) { mutableStateOf(r.completed) }
     var selected by rememberSaveable(r.id) { mutableStateOf<String?>(vm.rememberedOutlet(r.id)) }
     var editing by rememberSaveable(r.id) { mutableStateOf(false) }

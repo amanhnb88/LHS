@@ -21,7 +21,7 @@ data class UiState(
     val ready:Boolean=false,val screen:String="home",val root:String="home",val calls:List<CallReport> = emptyList(),val days:List<DailyReport> = emptyList(),
     val call:CallReport?=null,val day:DailyReport?=null,val settings:Settings=Settings(),val saved:String="Tersimpan",
     val pending:Int=0,val error:String?=null,val busy:Boolean=false,val pdf:File?=null,val xlsx:File?=null,val preview:File?=null,
-    val notice:String?=null,val saveFailed:Boolean=false,
+    val notice:String?=null,val saveFailed:Boolean=false,val previewTitle:String="Pratinjau PDF",
     val focusTag:String="",val focusSerial:Long=0,val lastId:String?=null,val lastType:String?=null)
 
 class LhsViewModel(app:Application,private val navigation:SavedStateHandle=SavedStateHandle()):AndroidViewModel(app) {
@@ -42,7 +42,33 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
         }
     }
 
+    private suspend fun deleteFromRepository(key:String,draftOnly:Boolean) {
+        val id=key.substringAfter(':')
+        when(key.substringBefore(':')) {
+            "call" -> repository.deleteCall(id,draftOnly)
+            "day" -> repository.deleteDaily(id,draftOnly)
+            else -> kotlin.error("Jenis laporan tidak dikenal.")
+        }
+    }
+
+    private suspend fun finishDelete(key:String,draftOnly:Boolean) {
+        val marker="delete:$key"
+        try {
+            deleteFromRepository(key,draftOnly)
+        } catch(e:CancellationException) {
+            throw e
+        } catch(e:Exception) {
+            check(journal.edit().remove(marker).commit()) { "Catatan penghapusan belum dapat dipulihkan." }
+            throw e
+        }
+        // A crash before this commit replays the delete, never the pending draft.
+        check(journal.edit().remove(key).remove(marker).commit()) { "Catatan penghapusan belum dapat disimpan." }
+    }
+
     private suspend fun recoverDrafts() {
+        journal.all.filterKeys { it.startsWith("delete:") }.forEach { (marker,draftOnly) ->
+            finishDelete(marker.removePrefix("delete:"),draftOnly==true)
+        }
         if(journal.contains("flush-time"))check(journal.edit().remove("flush-time").commit())
         val saved=journal.all.mapNotNull { (key,value)->(value as? String)?.let { key to it } }.sortedBy { if(it.first=="settings")0 else 1 }
         for((key,payload) in saved) {
@@ -137,35 +163,62 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
         val root=screen.takeIf { it in RootTab.routes } ?: state.value.root
         navigation["screen"]=screen
         navigation["root"]=root
-        mutable.update { it.copy(screen=screen,root=root,error=null) }
+        mutable.update { it.copy(screen=screen,root=root,error=null,preview=null) }
         flushPending()
     }
-    fun backToRoot() = navigate(state.value.root)
+    fun backToRoot() {
+        val current=state.value
+        navigation["resume-${current.screen}"]=false
+        navigate(current.root)
+    }
 
-    fun newCall() { val r=CallReport(identity=state.value.settings.profile.copy(date=LocalDate.now().toString()));open(r);saveCall(r) }
+    fun selectTab(route:String) {
+        if(route !in RootTab.routes)return
+        val current=state.value
+        val editor=when(route) { "calls"->"call";"days"->"day";else->null }
+        preview(null)
+        if(current.screen==editor) {
+            navigation["resume-$editor"]=false
+            navigate(route)
+            return
+        }
+        if(current.screen==route)return
+        if(current.screen=="call" || current.screen=="day")navigation["resume-${current.screen}"]=true
+        navigate(route)
+        if(editor!=null && navigation.get<Boolean>("resume-$editor")==true) {
+            if(editor=="call" && current.call!=null || editor=="day" && current.day!=null)navigate(editor)
+        }
+    }
+
+    fun newCall() { if(state.value.busy)return;val r=CallReport(identity=state.value.settings.profile.copy(date=LocalDate.now().toString()));open(r);saveCall(r) }
     fun newDay() {
+        if(state.value.busy)return
         val s=state.value.settings
         val identity=s.profile.copy(date=LocalDate.now().toString())
         val r=newDaily(identity)
         open(r);saveDay(r)
     }
     fun open(r:CallReport) {
+        if(state.value.busy)return
         prefs.edit().putString("id",r.id).putString("type","call").apply()
         navigation["screen"]="call"
         navigation["callId"]=r.id
         mutable.update { it.copy(call=it.call?.takeIf { current->current.id==r.id && journal.contains("call:${r.id}") } ?: r,screen="call",pdf=null,xlsx=null,lastId=r.id,lastType="call",focusTag="") }
     }
     fun open(r:DailyReport) {
+        if(state.value.busy)return
         prefs.edit().putString("id",r.id).putString("type","day").apply()
         navigation["screen"]="day"
         navigation["dayId"]=r.id
         mutable.update { it.copy(day=it.day?.takeIf { current->current.id==r.id && journal.contains("day:${r.id}") } ?: r,screen="day",pdf=null,xlsx=null,lastId=r.id,lastType="day",focusTag="") }
     }
     fun call(change:(CallReport)->CallReport) {
+        if(state.value.busy)return
         val r=change(state.value.call ?: return).copy(completed=false)
         mutable.update { it.copy(call=r,pdf=null,xlsx=null) };saveCall(r)
     }
     fun day(change:(DailyReport)->DailyReport) {
+        if(state.value.busy)return
         val old=state.value.day ?: return
         if(old.status==ReportStatus.FINAL) { error("Buka kembali laporan sebelum mengubahnya.");return }
         val r=change(old)
@@ -249,6 +302,7 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
     }
     fun rememberProfile(identity:Identity) { settings { it.copy(profile=identity) } }
     fun completeCall(onReady:()->Unit) {
+        if(state.value.busy)return
         val r=state.value.call ?: return
         enqueue(dataWrite=true) {
             val saved=repository.call(r.id) ?: r
@@ -260,6 +314,7 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
 
     fun adoptLegacy() { day { StockLedger.adoptLegacy(it) } }
     fun finalizeDay(onReady:()->Unit) {
+        if(state.value.busy)return
         val r=state.value.day ?: return
         mutable.update { it.copy(busy=true) }
         enqueue(dataWrite=true) {
@@ -271,6 +326,7 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
         }
     }
     fun reopen(onReady:()->Unit) {
+        if(state.value.busy)return
         val r=state.value.day ?: return
         enqueue {
             val result=repository.reopen(r.id)
@@ -287,9 +343,45 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
         if(o.name.isBlank())return
         settings { s -> s.copy(outlets=(s.outlets.filterNot { it.name.equals(o.name,true) }+SavedOutlet(o.name,o.address)).sortedBy { it.name }) }
     }
-    fun removeCall(r:CallReport) { enqueue { repository.deleteCall(r.id) } }
-    fun removeDay(r:DailyReport) { enqueue { repository.deleteDaily(r.id);mutable.update { it.copy(notice=if(r.usesLedger) "Laporan dihapus. Laporan yang memakai stoknya telah diperiksa ulang." else "Laporan dihapus.") } } }
+    fun removeCall(r:CallReport,draftOnly:Boolean=false) = removeReport("call",r.id,draftOnly)
+    fun removeDay(r:DailyReport,draftOnly:Boolean=false) = removeReport("day",r.id,draftOnly,r.usesLedger)
+
+    private fun removeReport(type:String,id:String,draftOnly:Boolean,usesLedger:Boolean=false) {
+        if(state.value.busy)return
+        val key="$type:$id"
+        mutable.update { it.copy(busy=true) }
+        enqueue {
+            try {
+                // The same queue drains all previously scheduled writes before recording deletion.
+                check(journal.edit().putBoolean("delete:$key",draftOnly).commit()) { "Penghapusan belum dapat dicatat." }
+                finishDelete(key,draftOnly)
+                withContext(Dispatchers.Main) {
+                    val current=state.value
+                    val clearCall=type=="call" && current.call?.id==id
+                    val clearDay=type=="day" && current.day?.id==id
+                    if(clearCall || clearDay) {
+                        navigation.remove<String>(if(clearCall)"callId" else "dayId")
+                        navigation["resume-$type"]=false
+                        if(current.screen==type)backToRoot()
+                    }
+                    if(current.lastId==id)prefs.edit().remove("id").remove("type").apply()
+                    mutable.update {
+                        it.copy(call=if(clearCall)null else it.call,day=if(clearDay)null else it.day,
+                            calls=if(type=="call")it.calls.filterNot { row->row.id==id } else it.calls,
+                            days=if(type=="day")it.days.filterNot { row->row.id==id } else it.days,
+                            lastId=it.lastId.takeUnless { value->value==id },
+                            lastType=it.lastType.takeUnless { _->it.lastId==id },
+                            error=if(draftOnly)"Draft berhasil dihapus" else "Laporan berhasil dihapus",
+                            notice=if(usesLedger)"Laporan yang memakai stoknya telah diperiksa ulang." else it.notice)
+                    }
+                }
+            } finally {
+                mutable.update { it.copy(busy=false) }
+            }
+        }
+    }
     fun attach(uri:Uri) {
+        if(state.value.busy)return
         val id=state.value.day?.id ?: return
         enqueue {
             val a=repository.importAttachment(uri)
@@ -299,9 +391,19 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
             mutable.update { if(it.day?.id==id)it.copy(day=result.reports.first { d->d.id==id }) else it }
         }
     }
-    fun export(xlsx:Boolean=false,preview:Boolean=false,onReady:(File)->Unit={}) {
-        val type=state.value.screen;val id=if(type=="call")state.value.call?.id else state.value.day?.id
-        if(id==null)return
+    fun export(format:ExportFormat=ExportFormat.PDF,onReady:(List<File>)->Unit={}) {
+        exportReport(format,false,onReady)
+    }
+
+    fun previewReport(asJpeg:Boolean=false) {
+        exportReport(if(asJpeg)ExportFormat.JPG else ExportFormat.PDF,true) {}
+    }
+
+    private fun exportReport(format:ExportFormat,preview:Boolean,onReady:(List<File>)->Unit) {
+        val current=state.value
+        if(current.busy)return
+        val type=current.screen
+        val id=when(type) { "call"->current.call?.id;"day"->current.day?.id;else->null } ?: return
         mutable.update { it.copy(busy=true) }
         enqueue {
             try {
@@ -310,15 +412,44 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
                 val errors=if(call!=null)Calculation.errors(call) else Calculation.errors(requireNotNull(day))
                 require(errors.isEmpty()) { errors.joinToString("\n") }
                 if(day?.usesLedger==true && !preview) require(day.status==ReportStatus.FINAL) { "Selesaikan pemeriksaan laporan sebelum ekspor final." }
-                val sheets=if(call!=null)Layout.calls(call) else if(xlsx)Layout.dailyWorkbook(day!!) else listOf(Layout.daily(day!!))
+                val excel=format==ExportFormat.EXCEL
+                val sheets=if(call!=null)Layout.calls(call) else if(excel)Layout.dailyWorkbook(day!!) else listOf(Layout.daily(day!!))
                 val identity=call?.identity ?: day!!.identity
-                val file=File(getApplication<Application>().cacheDir,"exports/${if(call!=null) "CALLSHEET" else "LHS"}_${identity.date}_${id.take(8)}.${if(xlsx) "xlsx" else "pdf"}")
-                file.parentFile!!.mkdirs()
-                val temp=File(file.parentFile,file.name+".tmp")
-                try { temp.outputStream().use { if(xlsx)ExcelExport.write(sheets,it) else PdfExport.write(sheets,it) };check(temp.renameTo(file)) { "File gagal disimpan." } } finally { temp.delete() }
-                mutable.update { if(xlsx)it.copy(xlsx=file) else it.copy(pdf=file,preview=if(preview)file else null) }
-                withContext(Dispatchers.Main) { onReady(file) }
-            } finally { mutable.update { it.copy(busy=false) } }
+                val base="${if(call!=null) "CALLSHEET" else "LHS"}_${identity.date}_${id.take(8)}"
+                val exports=File(getApplication<Application>().cacheDir,"exports").apply { mkdirs() }
+                val extension=if(excel)"xlsx" else "pdf"
+                val file=File(exports,"$base.$extension")
+                val temp=File.createTempFile("report-",".tmp",exports)
+                val files=try {
+                    temp.outputStream().use { if(excel)ExcelExport.write(sheets,it) else PdfExport.write(sheets,it) }
+                    if(format==ExportFormat.JPG && !preview) {
+                        val folder=java.nio.file.Files.createTempDirectory(exports.toPath(),"jpg-").toFile()
+                        JpegExport.write(temp,folder,base)
+                    } else {
+                        check(temp.renameTo(file)) { "File gagal disimpan." }
+                        listOf(file)
+                    }
+                } finally {
+                    temp.delete()
+                }
+                withContext(Dispatchers.Main) {
+                    val latest=state.value
+                    val latestId=if(type=="call")latest.call?.id else latest.day?.id
+                    if(latest.screen==type && latestId==id) {
+                        mutable.update {
+                            when {
+                                preview -> it.copy(preview=file,previewTitle="Pratinjau ${format.label}")
+                                excel -> it.copy(xlsx=file)
+                                format==ExportFormat.PDF -> it.copy(pdf=file)
+                                else -> it
+                            }
+                        }
+                        onReady(files)
+                    }
+                }
+            } finally {
+                mutable.update { it.copy(busy=false) }
+            }
         }
     }
     fun preview(file:File?) { mutable.update { it.copy(preview=file) } }

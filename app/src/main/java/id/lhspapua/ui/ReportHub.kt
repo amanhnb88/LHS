@@ -17,11 +17,14 @@ import id.lhspapua.domain.*
         val day=recentDay ?: if(call==null)state.days.firstOrNull { it.status==ReportStatus.DRAFT } else null
         if(call!=null || day!=null) {
             val identity=call?.identity ?: day!!.identity
-            OutlinedCard(onClick={ if(call!=null)vm.open(call) else vm.open(day!!) },modifier=Modifier.fillMaxWidth()) {
+            OutlinedCard(modifier=Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
-                    Text("Lanjutkan Laporan",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
                     Text("${if(call!=null)"Callsheet" else "Laporan Harian"} · Draf")
                     Text("${identity.displayDate()} · ${identity.sales.ifBlank { "Sales belum diisi" }}",style=MaterialTheme.typography.bodySmall)
+                    TextButton(onClick={ if(call!=null)vm.open(call) else vm.open(day!!) }) { Text("Lanjutkan Laporan") }
+                    DraftDelete(identity,if(call!=null)"Callsheet" else "Laporan Harian",state.busy) {
+                        if(call!=null)vm.removeCall(call,draftOnly=true) else vm.removeDay(day!!,draftOnly=true)
+                    }
                 }
             }
         } else {
@@ -36,11 +39,28 @@ import id.lhspapua.domain.*
         val calls=state.calls.filterNot { it.completed }
         val days=state.days.filter { it.status==ReportStatus.DRAFT }.sortedWith(compareByDescending<DailyReport> { it.identity.date }.thenByDescending { it.stockSequence })
         Text("Lanjutkan Laporan",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
-        if(daily)days.forEach { r->ReportRow(r.identity,if(r.formatVersion<2)"Laporan lama" else "Draf") { vm.open(r) } }
-        else calls.forEach { r->ReportRow(r.identity,"${r.activeOutlets().size} outlet") { vm.open(r) } }
+        if(daily)days.forEach { r->key(r.id) {
+            ReportRow(r.identity,if(r.formatVersion<2)"Laporan lama" else "Draf") { vm.open(r) }
+            DraftDelete(r.identity,"Laporan Harian",state.busy) { vm.removeDay(r,draftOnly=true) }
+        } }
+        else calls.forEach { r->key(r.id) {
+            ReportRow(r.identity,"${r.activeOutlets().size} outlet") { vm.open(r) }
+            DraftDelete(r.identity,"Callsheet",state.busy) { vm.removeCall(r,draftOnly=true) }
+        } }
         if(if(daily)days.isEmpty() else calls.isEmpty())Text("Belum ada draf. Pilih Buat Laporan Baru untuk mulai.")
     }
 }
+@Composable private fun DraftDelete(identity:Identity,type:String,busy:Boolean,delete:()->Unit) {
+    var confirm by rememberSaveable { mutableStateOf(false) }
+    TextButton(onClick={ confirm=true },enabled=!busy) { Text("Hapus Draft") }
+    if(confirm) {
+        val name=identity.sales.ifBlank { "Sales belum diisi" }
+        Confirmation("Hapus Draft?",
+            "Draft $type tanggal ${identity.displayDate()} atas nama $name akan dihapus. Data yang dihapus tidak dapat dipulihkan tanpa backup.",
+            "Hapus Draft",{ confirm=false;delete() },{ confirm=false })
+    }
+}
+
 @Composable private fun ReportRow(identity:Identity,status:String,action:()->Unit) {
     Surface(onClick=action,modifier=Modifier.fillMaxWidth(),shape=MaterialTheme.shapes.small) {
         Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {

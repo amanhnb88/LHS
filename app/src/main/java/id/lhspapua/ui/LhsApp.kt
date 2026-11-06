@@ -13,6 +13,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import android.provider.DocumentsContract
 import androidx.compose.ui.res.painterResource
 import id.lhspapua.R
 import androidx.compose.ui.text.font.FontWeight
@@ -32,6 +35,7 @@ import java.io.File
     val state by vm.state.collectAsStateWithLifecycle()
     val context=LocalContext.current;val scope=rememberCoroutineScope();val lifecycle=LocalLifecycleOwner.current
     val dispatcher=LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    var pendingJpegs by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var pendingPath by rememberSaveable { mutableStateOf<String?>(null) }
     var restoreUri by rememberSaveable { mutableStateOf<android.net.Uri?>(null) }
     var settingsSection by rememberSaveable { mutableStateOf("") }
@@ -42,6 +46,15 @@ import java.io.File
     val pages=rememberSaveableStateHolder()
     val tab=RootTab.entries.firstOrNull { it.route==state.screen }
     val imeOpen=WindowInsets.ime.getBottom(LocalDensity.current)>0
+    val activeTab=when(state.screen) { "call"->"calls";"day"->"days";else->state.root }
+    val showTabs=tab!=null || state.screen=="call" || state.screen=="day"
+    val focus=LocalFocusManager.current
+    val keyboard=LocalSoftwareKeyboardController.current
+    fun selectTab(route:String) {
+        focus.clearFocus()
+        keyboard?.hide()
+        vm.selectTab(route)
+    }
     fun openSettings(section:String="") {
         settingsOrigin=state.screen
         settingsSection=section
@@ -76,10 +89,43 @@ import java.io.File
     }
     val savePdf=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { write(it) }
     val saveXlsx=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")) { write(it) }
+    val saveJpeg=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/jpeg")) { write(it) }
+    val saveJpegFolder=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
+        val files=pendingJpegs.map(::File)
+        pendingJpegs=arrayListOf()
+        if(tree!=null && files.isNotEmpty())scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val resolver=context.contentResolver
+                    val folder=DocumentsContract.buildDocumentUriUsingTree(tree,DocumentsContract.getTreeDocumentId(tree))
+                    val created=mutableListOf<android.net.Uri>()
+                    try {
+                        for(file in files) {
+                            val target=DocumentsContract.createDocument(resolver,folder,"image/jpeg",file.name)
+                                ?: error("Folder tujuan tidak dapat ditulis.")
+                            created.add(target)
+                            val output=resolver.openOutputStream(target) ?: error("File tujuan tidak dapat dibuka.")
+                            output.use { out->file.inputStream().use { it.copyTo(out) } }
+                        }
+                    } catch(e:Exception) {
+                        for(target in created)runCatching { DocumentsContract.deleteDocument(resolver,target) }
+                        throw e
+                    }
+                }
+            }.onSuccess { vm.error("${files.size} halaman JPG berhasil disimpan.") }
+                .onFailure { vm.error(it.message ?: "JPG gagal disimpan.") }
+        }
+    }
     val saveZip=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { write(it) }
     val restore=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { restoreUri=it }
     val attachment=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let(vm::attach) }
-    fun save(file:File) { pendingPath=file.absolutePath;when(file.extension) { "pdf"->savePdf.launch(file.name);"xlsx"->saveXlsx.launch(file.name);else->saveZip.launch(file.name) } }
+    fun save(file:File) { pendingPath=file.absolutePath;when(file.extension) { "pdf"->savePdf.launch(file.name);"xlsx"->saveXlsx.launch(file.name);"jpg"->saveJpeg.launch(file.name);else->saveZip.launch(file.name) } }
+    fun saveFiles(files:List<File>) {
+        if(files.size==1)save(files.single()) else {
+            pendingJpegs=ArrayList(files.map { it.absolutePath })
+            saveJpegFolder.launch(null)
+        }
+    }
     fun share(files:List<File>) { runCatching { ShareFiles.share(context,files) }.onFailure { vm.error(it.message) } }
     SalesTheme {
         CompositionLocalProvider(LocalFieldFocus provides FieldFocus(state.focusTag,state.focusSerial),LocalInputCommit provides vm::flushPending,LocalInputLocked provides state.busy) {
@@ -98,6 +144,7 @@ import java.io.File
                 else -> "LHS Papua"
             }
             Scaffold(
+                modifier=Modifier.imePadding(),
                 contentWindowInsets=WindowInsets.safeDrawing,
                 snackbarHost={ SnackbarHost(snackbar) },
                 topBar={
@@ -115,9 +162,9 @@ import java.io.File
                         }
                     )
                 },
-                bottomBar={ if(tab!=null && !imeOpen)RootNavigation(state.root,vm::navigate) }
+                bottomBar={ if(showTabs)RootNavigation(activeTab,imeOpen,::selectTab) }
             ) { padding ->
-                Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
+                Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
                     if(!state.ready)CircularProgressIndicator(Modifier.align(Alignment.Center))
                     else {
                         val page=when(state.screen) {
@@ -129,9 +176,9 @@ import java.io.File
                             when(state.screen) {
                                 "home" -> HomeScreen(state,vm)
                                 "calls","days" -> ReportHub(state.screen=="days",state,vm)
-                                "call" -> state.call?.let { CallsheetScreen(it,state,vm,::save,::share) }
+                                "call" -> state.call?.let { CallsheetScreen(it,state,vm,::saveFiles,::share) }
                                 "day" -> state.day?.let {
-                                    DailyScreen(it,state,vm,::save,::share,{ attachment.launch(arrayOf("image/*","application/pdf")) }) {
+                                    DailyScreen(it,state,vm,::saveFiles,::share,{ attachment.launch(arrayOf("image/*","application/pdf")) }) {
                                         openSettings("lanjutan")
                                     }
                                 }
@@ -160,7 +207,9 @@ import java.io.File
             )
             state.notice?.let { Confirmation("Periksa laporan terkait",it,"Mengerti",vm::dismissNotice,vm::dismissNotice) }
             restoreUri?.let { uri->Confirmation("Pulihkan backup?","Laporan dengan ID yang sama diganti dari backup. Simpan backup saat ini jika ingin mempertahankan salinannya.","Pulihkan",{ vm.restore(uri);restoreUri=null },{ restoreUri=null }) }
-            state.preview?.let { DocumentPreview(it) { vm.preview(null) } }
+            state.preview?.let { file ->
+                DocumentPreview(file,state.previewTitle,bottomBar={ RootNavigation(activeTab,select=::selectTab) }) { vm.preview(null) }
+            }
         }
     }
 }

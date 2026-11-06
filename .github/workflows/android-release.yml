@@ -16,7 +16,7 @@ jobs:
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
-       github.event.before == 'd1224506970c2d5d5a7151338b0ce701a9b5378a')
+       github.event.before == '526edd38e8af217c3423085bb8bf16b21a162a13')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -55,7 +55,7 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: LHS-Papua-1.2.3-signed
+          name: LHS-Papua-1.2.4-signed
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
@@ -99,6 +99,9 @@ jobs:
             adb logcat -d -t 1800 > "$RUNNER_TEMP/lhs-device.log"
             exit 1
           }
+          if adb exec-out run-as id.lhspapua tar -C cache/exports -cf - jpg-proof > "$RUNNER_TEMP/lhs-jpg-proof.tar"; then
+            tar -xf "$RUNNER_TEMP/lhs-jpg-proof.tar" -C "$RUNNER_TEMP"
+          fi
       - name: Upload test reports and UI captures
         if: always()
         uses: actions/upload-artifact@v4
@@ -112,6 +115,7 @@ jobs:
             ${{ runner.temp }}/lhs-emulator.log
             ${{ runner.temp }}/lhs-window.log
             ${{ runner.temp }}/lhs-device.log
+            ${{ runner.temp }}/jpg-proof/
           if-no-files-found: ignore
           retention-days: 7
       - name: Remove temporary signing file

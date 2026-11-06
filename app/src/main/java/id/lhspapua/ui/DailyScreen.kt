@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.dp
 import id.lhspapua.domain.*
 import java.io.File
 
-@Composable internal fun DailyScreen(r:DailyReport,state:UiState,vm:LhsViewModel,save:(File)->Unit,share:(List<File>)->Unit,attach:()->Unit,advanced:()->Unit) {
+@Composable internal fun DailyScreen(r:DailyReport,state:UiState,vm:LhsViewModel,save:(List<File>)->Unit,share:(List<File>)->Unit,attach:()->Unit,advanced:()->Unit) {
     var section by rememberSaveable(r.id) { mutableIntStateOf(if(r.status==ReportStatus.FINAL||r.formatVersion<2)3 else vm.rememberedSection(r.id).coerceIn(0,3)) }
     var trail by rememberSaveable(r.id) { mutableStateOf(if(section in 1..2)intArrayOf(0) else intArrayOf()) }
     var reviewFrom by rememberSaveable(r.id) { mutableIntStateOf(0) }

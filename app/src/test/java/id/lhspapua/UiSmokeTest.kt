@@ -9,6 +9,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import id.lhspapua.ui.*
 import id.lhspapua.domain.*
+import id.lhspapua.export.ExportFormat
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
@@ -148,7 +149,7 @@ class UiSmokeTest {
         click("Excel")
         compose.onNodeWithText("Simpan Excel").performScrollTo().assertIsEnabled()
         compose.runOnIdle { vm.export() };saved()
-        compose.runOnIdle { vm.export(xlsx=true) };saved()
+        compose.runOnIdle { vm.export(ExportFormat.EXCEL) };saved()
         assertTrue((vm.state.value.pdf?.length() ?: 0L) > 0L)
         assertTrue((vm.state.value.xlsx?.length() ?: 0L) > 0L)
         click("Selesaikan Laporan");saved()
@@ -177,7 +178,7 @@ class UiSmokeTest {
             androidx.core.view.ViewCompat.dispatchApplyWindowInsets(compose.activity.findViewById(android.R.id.content),insets)
         }
         text("call-2-sold","3");compose.onNodeWithTag("call-2-sold").assertIsDisplayed()
-        compose.onNodeWithText("Simpan & Tambah Outlet").assertDoesNotExist()
+        compose.onNodeWithText("Simpan & Tambah Outlet").assertIsDisplayed()
         snapshot("STAGE3_FONT_130_IME")
     }
     @Test fun exitStaysOpenWhenAutosaveFailsAndRetryKeepsTheDraft() {
@@ -209,6 +210,21 @@ class UiSmokeTest {
         click("Keluar")
         awaitState("Exit callback after durable save") { exitRequested }
         assertEquals(20L,runBlocking { vm.repository.call(id) }?.outlets?.single()?.quantities?.first()?.sold)
+    }
+
+    @Test fun draftListConfirmationCancelsAndThenDeletesOnlySelectedDraft() {
+        newCall()
+        val id=vm.state.value.call!!.id
+        saved()
+        compose.onNodeWithTag("tab-calls").performClick()
+        click("Hapus Draft")
+        compose.onNodeWithText("Hapus Draft?").assertExists()
+        click("Batal")
+        assertNotNull(runBlocking { vm.repository.call(id) })
+        click("Hapus Draft")
+        compose.onNode(hasText("Hapus Draft") and hasClickAction() and hasAnyAncestor(isDialog())).performClick()
+        awaitState("Draft deleted") { vm.state.value.pending==0 && vm.state.value.calls.none { it.id==id } }
+        assertNull(runBlocking { vm.repository.call(id) })
     }
 
 }

@@ -65,7 +65,7 @@ object NativePdfPreview {
     }
 }
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable fun DocumentPreview(file:File,onClose:()->Unit) {
+@Composable fun DocumentPreview(file:File,title:String,bottomBar:@Composable ()->Unit,onClose:()->Unit) {
     var page by rememberSaveable(file.absolutePath) { mutableIntStateOf(0) }
     var rendered by remember(file) { mutableStateOf<RenderedPage?>(null) }
     var error by remember(file) { mutableStateOf<String?>(null) }
@@ -79,7 +79,7 @@ object NativePdfPreview {
         catch(e:Exception) { error=e.message ?: "Pratinjau tidak dapat dibuka." }
     }
     Dialog(onDismissRequest=onClose,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
-        Scaffold(contentWindowInsets=WindowInsets.safeDrawing,topBar={ TopAppBar(title={ Text("Pratinjau PDF") },navigationIcon={ IconButton(onClick=onClose) { Icon(painterResource(R.drawable.nav_back),"Kembali") } }) }) { padding ->
+        Scaffold(contentWindowInsets=WindowInsets.safeDrawing,bottomBar=bottomBar,topBar={ TopAppBar(title={ Text(title) },navigationIcon={ IconButton(onClick=onClose) { Icon(painterResource(R.drawable.nav_back),"Kembali") } }) }) { padding ->
             Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
                 val image=rendered
                 if(error!=null) Text(error!!,Modifier.padding(20.dp),color=MaterialTheme.colorScheme.error)

@@ -13,6 +13,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import id.lhspapua.data.Repository
+import id.lhspapua.export.ExportFormat
 import java.io.File
 import androidx.test.core.app.ApplicationProvider
 import androidx.core.view.ViewCompat
@@ -20,6 +21,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import id.lhspapua.domain.Calculation
 import id.lhspapua.domain.Product
+import id.lhspapua.domain.untouched
 import id.lhspapua.ui.LhsViewModel
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.first
@@ -50,14 +52,26 @@ class NativeFlowTest {
         click("Tambah Outlet")
         compose.onNodeWithTag("Nama Outlet").performScrollTo().performTextReplacement("Toko Uji")
         compose.onNodeWithTag("Alamat").performScrollTo().performTextReplacement("Jayapura")
-        val field=compose.onNodeWithTag("call-1-sold").performScrollTo()
+        val field=compose.onNodeWithTag("call-2-sold").performScrollTo()
         field.performTextReplacement("200")
         field.performTouchInput { click() }
         compose.waitUntil(15000) { imeVisible() }
-        compose.onNodeWithText("Simpan & Tambah Outlet").assertDoesNotExist()
+        compose.onNodeWithText("Simpan & Tambah Outlet").assertIsDisplayed()
         back()
         compose.waitUntil(10000) { !imeVisible() }
         field.assertExists()
+        field.performScrollTo().performTouchInput { click() }
+        compose.waitUntil(15000) { imeVisible() }
+        field.performScrollTo().assertIsDisplayed()
+        tab("calls").assertIsDisplayed().assertIsSelected()
+        listOf("home","days","history").forEach { tab(it).assertIsDisplayed() }
+        compose.onNode(hasText("Simpan & Tambah Outlet") and hasClickAction()).performTouchInput { click() }
+        compose.waitUntil(15000) { !imeVisible() }
+        compose.onNodeWithTag("Nama Outlet").assertExists()
+        assertTrue(vm.state.value.call!!.outlets.last().untouched())
+        tab("home").performClick()
+        tab("calls").performClick()
+        compose.onNodeWithText("Kunjungan Baru").assertExists()
         back()
         compose.onNodeWithText("1. Toko Uji").performScrollTo().assertExists()
         click("Periksa Laporan")
@@ -140,6 +154,7 @@ class NativeFlowTest {
         start()
         tab("days").performClick()
         click("Buat Laporan Baru")
+        tab("days").assertIsDisplayed().assertIsSelected()
         val vm=compose.runOnIdle { ViewModelProvider(compose.activity)[LhsViewModel::class.java] }
         fun field(tag:String)=compose.onNodeWithTag(tag).performScrollTo()
         fun input(tag:String,value:String) { field(tag).performTextReplacement(value) }
@@ -155,6 +170,8 @@ class NativeFlowTest {
             }
         }
         delivery.assertIsDisplayed()
+        tab("days").assertIsDisplayed().assertIsSelected()
+        compose.onNodeWithText("Periksa Laporan").assertIsDisplayed()
         delivery.performImeAction()
         field("stock-0-sold").assertIsFocused()
         input("stock-0-sold","100")
@@ -177,12 +194,14 @@ class NativeFlowTest {
 
         hideIme()
         click("Tester")
+        tab("days").assertIsDisplayed().assertIsSelected()
         input("tester-2-do","10")
         input("tester-2-sample","3")
         input("tester-2-tg","5")
         field("tester-2-tg").performImeAction()
         hideIme()
         click("Keuangan")
+        tab("days").assertIsDisplayed().assertIsSelected()
         input("Saldo Sebelum","50000")
         input("Saldo Akhir","12345")
         field("Saldo Akhir").performImeAction()
@@ -213,10 +232,20 @@ class NativeFlowTest {
         compose.onNodeWithText("Simpan Excel").performScrollTo().assertIsEnabled()
         compose.runOnIdle { vm.export() }
         saved()
-        compose.runOnIdle { vm.export(xlsx=true) }
+        compose.runOnIdle { vm.export(ExportFormat.EXCEL) }
         saved()
         assertTrue(vm.state.value.pdf?.isFile==true)
         assertTrue(vm.state.value.xlsx?.isFile==true)
+        click("JPG")
+        compose.onNodeWithText("Simpan JPG").performScrollTo().assertIsEnabled()
+        var jpg:File?=null
+        compose.runOnIdle { vm.export(ExportFormat.JPG) { jpg=it.single() } }
+        saved()
+        val jpeg=android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds=true }
+        android.graphics.BitmapFactory.decodeFile(requireNotNull(jpg).path,jpeg)
+        assertEquals("image/jpeg",jpeg.outMimeType)
+        assertEquals(2480,jpeg.outWidth)
+        assertEquals(3508,jpeg.outHeight)
         val persisted=runBlocking { requireNotNull(vm.repository.daily(id)) }
         assertNull(persisted.products[0].delivery)
         assertEquals(25L,Calculation.stockTg(persisted,0))

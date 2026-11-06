@@ -1,11 +1,18 @@
 package id.lhspapua.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -27,13 +34,26 @@ internal enum class RootTab(val route:String,val label:String,val title:String,v
     }
 }
 
-@Composable internal fun RootNavigation(selected:String,select:(String)->Unit) {
-    NavigationBar {
+@Composable internal fun RootNavigation(selected:String,compact:Boolean=false,select:(String)->Unit) {
+    if(compact) {
+        Surface(color=MaterialTheme.colorScheme.surface,tonalElevation=3.dp) {
+            Row(Modifier.fillMaxWidth().selectableGroup().windowInsetsPadding(NavigationBarDefaults.windowInsets)) {
+                RootTab.entries.forEach { tab ->
+                    val active=selected==tab.route
+                    Box(Modifier.weight(1f).height(48.dp).testTag("tab-${tab.route}")
+                        .selectable(active,role=Role.Tab,onClick={ select(tab.route) }),contentAlignment=Alignment.Center) {
+                        Icon(painterResource(tab.icon),contentDescription=tab.label,
+                            tint=if(active)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    } else NavigationBar {
         RootTab.entries.forEach { tab ->
             NavigationBarItem(
                 modifier=Modifier.testTag("tab-${tab.route}"),
                 selected=selected==tab.route,
-                onClick={ if(selected!=tab.route)select(tab.route) },
+                onClick={ select(tab.route) },
                 icon={ Icon(painterResource(tab.icon),contentDescription=null) },
                 label={ Text(tab.label,maxLines=1) }
             )
