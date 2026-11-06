@@ -16,7 +16,7 @@ jobs:
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
-       github.event.before == '2e6028c685b43d8d01d04a28d19837cf1a3f87e3')
+       github.event.before == '2af4c8135f97df57622dd720372c3715179e8c50')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -50,24 +50,6 @@ jobs:
           LHS_KEY_ALIAS: ${{ secrets.LHS_KEY_ALIAS }}
           LHS_KEY_PASSWORD: ${{ secrets.LHS_KEY_PASSWORD }}
         run: bash gradlew --no-daemon testReleaseUnitTest assembleRelease
-      - name: Test native input on Android emulator
-        shell: bash
-        run: |
-          test -c /dev/kvm
-          sudo chown "$(id -u)" /dev/kvm
-          image="system-images;android-34;google_apis;x86_64"
-          sdkmanager --install emulator "$image"
-          printf 'no\n' | avdmanager create avd --force --name lhs-test --package "$image" --device pixel_2
-          "$ANDROID_HOME/emulator/emulator" -avd lhs-test -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -accel on > "$RUNNER_TEMP/lhs-emulator.log" 2>&1 &
-          emulator_pid=$!
-          trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
-          timeout 180 adb wait-for-device || { cat "$RUNNER_TEMP/lhs-emulator.log"; exit 1; }
-          timeout 300 bash -c 'until [[ "$(adb shell getprop sys.boot_completed | tr -d "\r")" == 1 ]]; do sleep 2; done' || { cat "$RUNNER_TEMP/lhs-emulator.log"; exit 1; }
-          adb shell input keyevent 82
-          adb shell settings put secure show_ime_with_hard_keyboard 1
-          adb shell wm size 720x1280
-          adb shell wm density 320
-          bash gradlew --no-daemon connectedDebugAndroidTest
       - name: Verify signature
         run: |
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
@@ -77,6 +59,33 @@ jobs:
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
+      - name: Test native input on Android emulator
+        shell: bash
+        run: |
+          test -c /dev/kvm
+          sudo chown "$(id -u)" /dev/kvm
+          export ANDROID_USER_HOME="$RUNNER_TEMP/lhs-android"
+          export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
+          export ANDROID_EMULATOR_HOME="$ANDROID_USER_HOME"
+          mkdir -p "$ANDROID_AVD_HOME"
+          image="system-images;android-34;google_apis;x86_64"
+          sdkmanager --install emulator "$image"
+          printf 'no\n' | avdmanager create avd --force --name lhs-test --package "$image" --device pixel_2 --path "$ANDROID_AVD_HOME/lhs-test.avd"
+          test -s "$ANDROID_AVD_HOME/lhs-test.avd/config.ini"
+          if [ ! -f "$ANDROID_AVD_HOME/lhs-test.ini" ]; then
+            printf 'avd.ini.encoding=UTF-8\npath=%s\ntarget=android-34\n' "$ANDROID_AVD_HOME/lhs-test.avd" > "$ANDROID_AVD_HOME/lhs-test.ini"
+          fi
+          "$ANDROID_HOME/emulator/emulator" -list-avds | grep -Fx lhs-test
+          "$ANDROID_HOME/emulator/emulator" -avd lhs-test -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -accel on > "$RUNNER_TEMP/lhs-emulator.log" 2>&1 &
+          emulator_pid=$!
+          trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
+          timeout 180 bash -c 'until adb get-state 2>/dev/null | grep -qx device; do kill -0 "$1" 2>/dev/null || exit 1; sleep 2; done' bash "$emulator_pid" || { cat "$RUNNER_TEMP/lhs-emulator.log"; exit 1; }
+          timeout 300 bash -c 'until [[ "$(adb shell getprop sys.boot_completed | tr -d "\r")" == 1 ]]; do sleep 2; done' || { cat "$RUNNER_TEMP/lhs-emulator.log"; exit 1; }
+          adb shell input keyevent 82
+          adb shell settings put secure show_ime_with_hard_keyboard 1
+          adb shell wm size 720x1280
+          adb shell wm density 320
+          bash gradlew --no-daemon connectedDebugAndroidTest
       - name: Upload test reports and UI captures
         if: always()
         uses: actions/upload-artifact@v4
