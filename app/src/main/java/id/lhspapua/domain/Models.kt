@@ -21,7 +21,7 @@ fun Outlet.untouched() = name.isBlank() && address.isBlank() && quantities.all {
 fun CallReport.activeOutlets() = outlets.filterNot { it.untouched() }
 @Serializable data class CallReport(val id: String = UUID.randomUUID().toString(), val identity: Identity = Identity(), val outlets: List<Outlet> = emptyList(), val completed: Boolean = false)
 @Serializable data class Sale(val quantity: Long? = null, val price: Long? = null, val applicable: Boolean = true)
-@Serializable data class Stock(val delivery: Long? = null, val sample: Long? = null, val bonus: Long? = null, val manualTg: Long? = null, val sales: List<Sale> = List(3) { Sale() }, val opening: Long? = null, val openingTracked: Boolean = false)
+@Serializable data class Stock(val delivery: Long? = null, val sample: Long? = null, val bonus: Long? = null, val manualTg: Long? = null, val sales: List<Sale> = List(3) { Sale() }, val opening: Long? = null, val openingTracked: Boolean = false, val manualSold: Long? = null)
 @Serializable data class Tester(val delivery: Long? = null, val sample: Long? = null, val manualTg: Long? = null, val opening: Long? = null, val openingTracked: Boolean = false)
 @Serializable data class Finance(val previous: Long? = null, val debt: Long? = null, val settlement: Long? = null, val transfer: Long? = null, val expense: Long? = null, val notes: String = "", val madeBy: String = "", val manualBalance: Long? = null)
 @Serializable data class Rules(
@@ -39,7 +39,10 @@ fun CallReport.activeOutlets() = outlets.filterNot { it.untouched() }
     val stockSequence: Int = 1, val openingMode: OpeningMode = OpeningMode.AUTO,
     val stockSourceId: String? = null, val sourceRevision: Long? = null,
     val revision: Long = 0, val stockStale: Boolean = false, val stockIssue: String = "",
-    val openingNote: String = "", val finalizedAt: String? = null, val wasFinalized: Boolean = false)
+    val openingNote: String = "", val finalizedAt: String? = null, val wasFinalized: Boolean = false) {
+    val usesLedger: Boolean get() = formatVersion == 2
+    val independent: Boolean get() = formatVersion == 3
+}
 @Serializable enum class ReportStatus { DRAFT, FINAL }
 @Serializable enum class OpeningMode { AUTO, MANUAL }
 @Serializable data class StockOwner(val id: String = UUID.randomUUID().toString(), val name: String)
@@ -60,12 +63,15 @@ object OfficialPrices {
 
     fun sales(product: Product): List<Sale> = Tier.entries.map { tier ->
         if(tier == Tier.SG) Sale(applicable=false)
-        else Sale(quantity=0, price=values[product.ordinal][tier.ordinal])
+        else Sale(price=values[product.ordinal][tier.ordinal])
     }
 }
 
-/** Unknown opening stock stays empty until the ledger or the sales user supplies it. */
-fun newDaily(identity: Identity, settings: Settings, sequence: Int = 1) = DailyReport(
-    identity=identity, formatVersion=2, stockSequence=sequence,
-    products=Product.entries.map { product -> Stock(delivery=0,sample=0,bonus=0,openingTracked=true,sales=OfficialPrices.sales(product)) },
-    testers=List(3) { Tester(delivery=0,sample=0,openingTracked=true) },finance=Finance(debt=0,settlement=0,transfer=0,expense=0,madeBy=identity.sales),rules=settings.rules.copy(automaticTg=true,subtractSample=true,subtractBonus=true))
+/** Stage 3.2 input starts blank, with prices snapshotted for this report. */
+fun newDaily(identity: Identity) = DailyReport(
+    identity = identity.copy(stockOwnerId = ""),
+    formatVersion = 3,
+    products = Product.entries.map { product -> Stock(sales = OfficialPrices.sales(product)) },
+    finance = Finance(madeBy = identity.sales),
+    rules = Rules(automaticTg = false, automaticFinance = false)
+)

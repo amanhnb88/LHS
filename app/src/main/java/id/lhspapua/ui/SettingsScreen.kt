@@ -13,7 +13,7 @@ import id.lhspapua.domain.*
 @Composable internal fun SettingsScreen(section:String,select:(String)->Unit,state:UiState,vm:LhsViewModel,backup:()->Unit,restore:()->Unit) {
     when(section) {
         "" -> {
-            listOf(Triple("profil","Profil Sales","Identitas yang sering dipakai."),Triple("harga","Harga Produk","Harga resmi Grosir dan Retail."),Triple("outlet","Daftar Outlet","Nama dan alamat outlet tersimpan."),Triple("backup","Backup Data","Simpan salinan laporan dan lampiran."),Triple("lanjutan","Pengaturan Lanjutan","Aturan keuangan dan penjelasan stok.")).forEach { (key,title,description)->MainCard(title,description) { select(key) } }
+            listOf(Triple("profil","Profil Sales","Identitas yang sering dipakai."),Triple("harga","Harga Produk","Harga resmi Grosir dan Retail."),Triple("outlet","Daftar Outlet","Nama dan alamat outlet tersimpan."),Triple("backup","Backup Data","Simpan salinan laporan dan lampiran."),Triple("lanjutan","Pengaturan Lanjutan","Pengaturan untuk laporan lama.")).forEach { (key,title,description)->MainCard(title,description) { select(key) } }
         }
         "profil" -> {
             Text("Profil Sales",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
@@ -47,7 +47,7 @@ import id.lhspapua.domain.*
     var rules by remember(current) { mutableStateOf(current) }
     var confirm by remember { mutableStateOf(false) }
     Text("Pengaturan Lanjutan",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
-    Notice("DO = barang baru dari gudang. TG = Tutup Ganti / Sisa Stok Akhir. Stok tersedia = Stok Awal + DO. TG = Stok Awal + DO − Jual − Sampel − Bonus. Stok tester dihitung sendiri.")
+    Notice("Aturan ini tersedia untuk laporan lama. Laporan baru memakai isian stok, tester, dan saldo manual.")
     Text("Aturan Keuangan",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
     Text("Piutang: penjualan baru yang belum dibayar. Pelunasan: uang dari pembayaran piutang. Transfer: uang yang disetor. Pengeluaran: biaya operasional. Verifikasi arti dan arah perhitungannya dengan perusahaan.")
     Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -63,7 +63,7 @@ import id.lhspapua.domain.*
         Text(if(rules.acknowledged)"Aturan ini sudah disetujui." else "Aturan belum disetujui.",color=if(rules.acknowledged)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
     } else Text("Sales mengisi Saldo Akhir secara langsung. Tidak ada rumus saldo yang diasumsikan sebagai aturan perusahaan.")
     Button(onClick={ confirm=true },modifier=Modifier.fillMaxWidth()) { Text(if(rules.automaticFinance)"Verifikasi & Simpan Aturan" else "Gunakan Saldo Manual") }
-    if(confirm)Confirmation("Simpan aturan keuangan?",if(rules.automaticFinance)"Saya sudah memverifikasi aturan berikut: ${rules.financeText()}. Berlaku untuk laporan baru dan draf yang sedang dibuka. Laporan final lain tetap memakai aturannya sendiri." else "Saldo Akhir akan diisi manual pada laporan baru dan draf yang sedang dibuka. Nilai laporan final lain dipertahankan.","Setujui & Simpan",{ vm.saveRules(rules.copy(acknowledged=rules.automaticFinance));confirm=false },{ confirm=false })
+    if(confirm)Confirmation("Simpan aturan keuangan?",if(rules.automaticFinance)"Saya sudah memverifikasi aturan berikut: ${rules.financeText()}. Berlaku untuk draf laporan lama yang sedang dibuka." else "Saldo Akhir akan diisi manual pada draf laporan lama yang sedang dibuka.","Setujui & Simpan",{ vm.saveRules(rules.copy(acknowledged=rules.automaticFinance));confirm=false },{ confirm=false })
 }
 @Composable internal fun SavedOutlets(s:Settings,vm:LhsViewModel) {
     var search by rememberSaveable { mutableStateOf("") }

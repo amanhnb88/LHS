@@ -4,8 +4,20 @@ import id.lhspapua.domain.*
 import org.junit.Assert.*
 import org.junit.Test
 
+internal fun ledgerDaily(identity: Identity, settings: Settings) = DailyReport(
+    identity=identity,
+    formatVersion=2,
+    products=Product.entries.map { product ->
+        Stock(delivery=0,sample=0,bonus=0,openingTracked=true,
+            sales=OfficialPrices.sales(product).map { if(it.applicable) it.copy(quantity=0) else it })
+    },
+    testers=List(3) { Tester(delivery=0,sample=0,openingTracked=true) },
+    finance=Finance(debt=0,settlement=0,transfer=0,expense=0,madeBy=identity.sales),
+    rules=settings.rules.copy(automaticTg=true,subtractSample=true,subtractBonus=true)
+)
+
 object StockFixture {
-    fun report(date:String="2026-11-01",owner:String="sales-ansar") = newDaily(Identity(date=date,sales="Ansar",stockOwnerId=owner),Settings(rules=Rules(acknowledged=true),prices=List(3){List(3){10000L}})).let { r ->
+    fun report(date:String="2026-11-01",owner:String="sales-ansar") = ledgerDaily(Identity(date=date,sales="Ansar",stockOwnerId=owner),Settings(rules=Rules(acknowledged=true),prices=List(3){List(3){10000L}})).let { r ->
         r.copy(openingMode=OpeningMode.MANUAL,products=r.products.map { it.copy(opening=50,delivery=200,sample=10,bonus=5,sales=listOf(Sale(100,10000),Sale(40,10000),Sale(10,10000))) },testers=r.testers.map { it.copy(opening=5,delivery=10,sample=3) },finance=r.finance.copy(previous=0))
     }
     fun final(r:DailyReport)=r.copy(status=ReportStatus.FINAL,wasFinalized=true,finalizedAt="2026-11-05T00:00:00Z")

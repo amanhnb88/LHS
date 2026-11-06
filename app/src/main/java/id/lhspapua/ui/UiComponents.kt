@@ -162,7 +162,7 @@ internal object RupiahTransformation:VisualTransformation {
         modifier=modifier.fillMaxWidth().then(fieldAccess(tag)).testTag(tag).semantics { contentDescription=label },
         readOnly=readonly||LocalInputLocked.current,singleLine=true,isError=invalid||error!=null,
         prefix=if(money)({ Text("Rp ") })else null,
-        trailingIcon=if(signed&&!readonly)({ TextButton(onClick={ onChange(-(value ?: 0)) }) { Text("±") } })else null,
+        trailingIcon=if(signed&&!readonly)({ TextButton(enabled=value!=null,onClick={ value?.let { onChange(-it) } }) { Text("±") } })else null,
         supportingText=when { invalid->({ Text("Gunakan angka bulat, maksimal 15 digit.") });error!=null->({ Text(error) });else->null },
         visualTransformation=if(money)RupiahTransformation else VisualTransformation.None,
         keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number,imeAction=if(done)ImeAction.Done else ImeAction.Next),

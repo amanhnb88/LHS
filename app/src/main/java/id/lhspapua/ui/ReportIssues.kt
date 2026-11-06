@@ -12,6 +12,7 @@ object ReportIssues {
         val p=Product.entries.indexOfFirst { message.startsWith(it.label)||message.startsWith("Tester ${it.label}") }
         val tester=message.startsWith("Tester")||message.contains("tester",true)
         when {
+            r.independent -> ReportIssue(message,"Periksa isian","",product=p.coerceAtLeast(0))
             message.contains("harga",true)&&p>=0->{
                 val t=Tier.entries.indexOfFirst { message.startsWith("${Product.entries[p].label} ${it.label}:") }.coerceAtLeast(0)
                 ReportIssue(message,"Atur Harga ${listOf("Grosir","Sub Grosir","Retail")[t]}","price-$p-$t",0,p)

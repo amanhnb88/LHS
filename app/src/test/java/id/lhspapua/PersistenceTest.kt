@@ -46,7 +46,13 @@ class PersistenceTest {
         val sourceUri=androidx.core.content.FileProvider.getUriForFile(context,"id.lhspapua.files",source)
         val attachment=repo.importAttachment(sourceUri)
         val call=CallReport(outlets=listOf(Outlet(name="Backup Outlet")))
-        val day=DailyReport(attachments=listOf(attachment))
+        val draft=newDaily(Identity())
+        val day=draft.copy(
+            products=draft.products.mapIndexed { i,stock -> if(i==0) stock.copy(manualSold=100,manualTg=25) else stock },
+            testers=listOf(Tester(),Tester(),Tester(delivery=10,sample=3,manualTg=5)),
+            finance=Finance(manualBalance=12345),
+            attachments=listOf(attachment)
+        )
         repo.save(call); repo.save(day); repo.save(Settings(profile=Identity(sales="Backup Sales")))
         val backup=java.io.File(directory,"backup.zip"); repo.backup(backup)
         repo.deleteCall(call.id); repo.deleteDaily(day.id)
@@ -55,6 +61,7 @@ class PersistenceTest {
         val restored=repo.daily(day.id)!!; assertEquals(1,restored.attachments.size)
         assertArrayEquals(byteArrayOf(1,2,3,4),repo.attachment(restored.attachments.first()).readBytes())
         assertNotEquals(attachment.file,restored.attachments.first().file)
+        assertEquals(day.copy(attachments=restored.attachments),restored)
         db.close(); Unit
     }
     @Test fun maliciousBackupDoesNotWriteOutsideStaging() = runBlocking {
@@ -78,7 +85,7 @@ class PersistenceTest {
         val obj=kotlinx.serialization.json.Json.parseToJsonElement(payload) as kotlinx.serialization.json.JsonObject
         val oldKeys=setOf("id","identity","products","testers","finance","rules","attachments")
         fun oldPayload(e:kotlinx.serialization.json.JsonElement):kotlinx.serialization.json.JsonElement = when(e) {
-            is kotlinx.serialization.json.JsonObject -> kotlinx.serialization.json.JsonObject(e.filterKeys { it !in setOf("stockOwnerId","opening","openingTracked","manualBalance","automaticFinance") }.mapValues { oldPayload(it.value) })
+            is kotlinx.serialization.json.JsonObject -> kotlinx.serialization.json.JsonObject(e.filterKeys { it !in setOf("stockOwnerId","opening","openingTracked","manualBalance","automaticFinance","manualSold") }.mapValues { oldPayload(it.value) })
             is kotlinx.serialization.json.JsonArray -> kotlinx.serialization.json.JsonArray(e.map(::oldPayload))
             else -> e
         }

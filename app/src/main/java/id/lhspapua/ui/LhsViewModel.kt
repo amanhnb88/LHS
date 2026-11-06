@@ -102,9 +102,8 @@ class LhsViewModel(app:Application):AndroidViewModel(app) {
     fun newDay() {
         val s=state.value.settings
         val identity=s.profile.copy(date=LocalDate.now().toString())
-        val r=newDaily(identity,s,StockLedger.sequence(identity,state.value.days))
+        val r=newDaily(identity)
         open(r);saveDay(r)
-        if(identity.sales.isNotBlank())prepareDailyIdentity {}
     }
     fun open(r:CallReport) {
         prefs.edit().putString("id",r.id).putString("type","call").apply()
@@ -144,6 +143,10 @@ class LhsViewModel(app:Application):AndroidViewModel(app) {
     }
     fun updateIdentity(identity:Identity) {
         val r=state.value.day ?: return
+        if(r.independent) {
+            day { it.copy(identity=identity.copy(stockOwnerId="")) }
+            return
+        }
         val ownerChanged=!identity.sales.trim().equals(r.identity.sales.trim(),true)
         val changed=ownerChanged || identity.date!=r.identity.date
         day { it.copy(identity=identity.copy(stockOwnerId=if(ownerChanged) "" else identity.stockOwnerId),
@@ -155,6 +158,7 @@ class LhsViewModel(app:Application):AndroidViewModel(app) {
     }
     fun prepareDailyIdentity(onReady:()->Unit) {
         val selected=state.value.day ?: return
+        if(!selected.usesLedger) { onReady();return }
         if(selected.identity.sales.isBlank()) { error("Isi nama Sales terlebih dahulu.");return }
         mutable.update { it.copy(busy=true) }
         enqueue {
@@ -221,14 +225,14 @@ class LhsViewModel(app:Application):AndroidViewModel(app) {
     }
     fun saveRules(rules:Rules) {
         settings { it.copy(rules=rules) }
-        if(state.value.day?.status==ReportStatus.DRAFT)day { it.copy(rules=rules) }
+        if(state.value.day?.let { !it.independent && it.status==ReportStatus.DRAFT }==true)day { it.copy(rules=rules) }
     }
     fun saveOutlet(o:Outlet) {
         if(o.name.isBlank())return
         settings { s -> s.copy(outlets=(s.outlets.filterNot { it.name.equals(o.name,true) }+SavedOutlet(o.name,o.address)).sortedBy { it.name }) }
     }
     fun removeCall(r:CallReport) { enqueue { repository.deleteCall(r.id) } }
-    fun removeDay(r:DailyReport) { enqueue { repository.deleteDaily(r.id);mutable.update { it.copy(notice="Laporan dihapus. Laporan yang memakai stoknya telah diperiksa ulang.") } } }
+    fun removeDay(r:DailyReport) { enqueue { repository.deleteDaily(r.id);mutable.update { it.copy(notice=if(r.usesLedger) "Laporan dihapus. Laporan yang memakai stoknya telah diperiksa ulang." else "Laporan dihapus.") } } }
     fun attach(uri:Uri) {
         val id=state.value.day?.id ?: return
         enqueue {
@@ -249,7 +253,7 @@ class LhsViewModel(app:Application):AndroidViewModel(app) {
                 val day=if(type=="day")repository.daily(id) else null
                 val errors=if(call!=null)Calculation.errors(call) else Calculation.errors(requireNotNull(day))
                 require(errors.isEmpty()) { errors.joinToString("\n") }
-                if(day?.formatVersion==2 && !preview) require(day.status==ReportStatus.FINAL) { "Selesaikan pemeriksaan laporan sebelum ekspor final." }
+                if(day?.usesLedger==true && !preview) require(day.status==ReportStatus.FINAL) { "Selesaikan pemeriksaan laporan sebelum ekspor final." }
                 val sheets=if(call!=null)Layout.calls(call) else if(xlsx)Layout.dailyWorkbook(day!!) else listOf(Layout.daily(day!!))
                 val identity=call?.identity ?: day!!.identity
                 val file=File(getApplication<Application>().cacheDir,"exports/${if(call!=null) "CALLSHEET" else "LHS"}_${identity.date}_${id.take(8)}.${if(xlsx) "xlsx" else "pdf"}")

@@ -129,7 +129,7 @@ class AdminRulesRegressionTest {
 
     @Test fun officialPricesDisableSgAndKeepDailyTotalsAndTgInSync() {
         val oldSettings = Settings(prices=List(3) { listOf(1L,2L,3L) },rules=Rules(acknowledged=true))
-        val draft = newDaily(Identity(sales="Sales Uji",stockOwnerId="owner"),oldSettings)
+        val draft = ledgerDaily(Identity(sales="Sales Uji",stockOwnerId="owner"),oldSettings)
         val report = draft.copy(
             products=draft.products.map { stock -> stock.copy(opening=50,delivery=200,sample=10,bonus=5,
                 sales=stock.sales.mapIndexed { tier, sale ->
@@ -151,7 +151,7 @@ class AdminRulesRegressionTest {
         assertEquals(7100000L, Calculation.balance(report))
         val finalReport = report.copy(status=ReportStatus.FINAL,openingMode=OpeningMode.MANUAL)
         val nextDate = java.time.LocalDate.parse(report.identity.date).plusDays(1).toString()
-        val nextDraft = newDaily(report.identity.copy(date=nextDate),oldSettings)
+        val nextDraft = ledgerDaily(report.identity.copy(date=nextDate),oldSettings)
         val next = nextDraft.copy(
             products=nextDraft.products.map { stock -> stock.copy(delivery=100,sample=5,
                 sales=listOf(stock.sales[0].copy(quantity=100),stock.sales[1],stock.sales[2].copy(quantity=20))) },

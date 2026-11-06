@@ -16,7 +16,7 @@ jobs:
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
-       github.event.before == '97b0b2077e762628e2fe08abc985410341dd7f86')
+       github.event.before == '2e6028c685b43d8d01d04a28d19837cf1a3f87e3')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -50,12 +50,30 @@ jobs:
           LHS_KEY_ALIAS: ${{ secrets.LHS_KEY_ALIAS }}
           LHS_KEY_PASSWORD: ${{ secrets.LHS_KEY_PASSWORD }}
         run: bash gradlew --no-daemon testReleaseUnitTest assembleRelease
+      - name: Test native input on Android emulator
+        shell: bash
+        run: |
+          test -c /dev/kvm
+          sudo chown "$(id -u)" /dev/kvm
+          image="system-images;android-34;google_apis;x86_64"
+          sdkmanager --install emulator "$image"
+          printf 'no\n' | avdmanager create avd --force --name lhs-test --package "$image" --device pixel_2
+          "$ANDROID_HOME/emulator/emulator" -avd lhs-test -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect -accel on > "$RUNNER_TEMP/lhs-emulator.log" 2>&1 &
+          emulator_pid=$!
+          trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
+          timeout 180 adb wait-for-device || { cat "$RUNNER_TEMP/lhs-emulator.log"; exit 1; }
+          timeout 300 bash -c 'until [[ "$(adb shell getprop sys.boot_completed | tr -d "\r")" == 1 ]]; do sleep 2; done' || { cat "$RUNNER_TEMP/lhs-emulator.log"; exit 1; }
+          adb shell input keyevent 82
+          adb shell settings put secure show_ime_with_hard_keyboard 1
+          adb shell wm size 720x1280
+          adb shell wm density 320
+          bash gradlew --no-daemon connectedDebugAndroidTest
       - name: Verify signature
         run: |
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: LHS-Papua-1.2.1-signed
+          name: LHS-Papua-1.2.2-signed
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
@@ -68,6 +86,8 @@ jobs:
             app/build/reports/tests/testReleaseUnitTest/
             app/build/test-results/testReleaseUnitTest/
             app/build/verification/
+            app/build/outputs/androidTest-results/connected/
+            ${{ runner.temp }}/lhs-emulator.log
           if-no-files-found: ignore
           retention-days: 7
       - name: Remove temporary signing file

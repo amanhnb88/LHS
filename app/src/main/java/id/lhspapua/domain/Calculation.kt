@@ -37,7 +37,17 @@ object Calculation {
         }
         return if (!r.automaticTg) t.manualTg else t.delivery?.let { bounded(it - (t.sample ?: 0)) }
     }
+    fun stockSold(r: DailyReport, product: Int): Long? =
+        if(r.independent) r.products[product].manualSold else sold(r.products[product])
+
+    fun stockTg(r: DailyReport, product: Int): Long? =
+        if(r.independent) r.products[product].manualTg else tg(r.products[product], r.rules)
+
+    fun testerTg(r: DailyReport, product: Int): Long? =
+        if(r.independent) r.testers[product].manualTg else tg(r.testers[product], r.rules)
+
     fun balance(r: DailyReport): Long? {
+        if(r.independent) return r.finance.manualBalance
         if (r.products.any { it.sales.any(::missingPrice) }) return null
         val f = r.finance
         if(!r.rules.automaticFinance) return f.manualBalance
@@ -57,6 +67,11 @@ object Calculation {
         runCatching { Product.entries.indices.forEach { calls(r,it,true); calls(r,it,false) } }.exceptionOrNull()?.let { add(it.message ?: "Angka terlalu besar.") }
     }
     fun errors(r: DailyReport): List<String> = buildList {
+        if(r.independent) {
+            runCatching { validate(r) }.onFailure { add(it.message ?: "Periksa angka pada laporan.") }
+            runCatching { total(r) }.onFailure { add("Total terlalu besar untuk diekspor secara akurat.") }
+            return@buildList
+        }
         if(r.rules.automaticFinance && !r.rules.acknowledged) add("Aturan saldo belum disetujui. Verifikasi sekali di Pengaturan Lanjutan, atau gunakan Saldo Akhir manual.")
         if(!r.rules.automaticFinance && r.finance.manualBalance==null) add("Saldo Akhir manual belum diisi.")
         if(r.formatVersion>=2) {
@@ -86,7 +101,7 @@ object Calculation {
     }
     fun rupiah(n: Long?) = n?.let { "Rp " + NumberFormat.getIntegerInstance(Locale.forLanguageTag("id-ID")).format(it) } ?: "Belum lengkap"
     fun number(n: Long?) = n?.toString() ?: "Belum diisi"
-    fun safeMoney(block: () -> Long?) = runCatching { rupiah(block()) }.getOrDefault("Angka terlalu besar")
+    fun safeMoney(empty: String = "Belum lengkap", block: () -> Long?) = runCatching { block()?.let(::rupiah) ?: empty }.getOrDefault("Angka terlalu besar")
     fun validate(r: CallReport) {
         require(r.id.matches(Regex("[a-f0-9-]{36}"))) { "ID laporan tidak valid." }
         require(r.outlets.all { it.quantities.size == 3 && it.quantities.all { q -> listOf(q.stock,q.sold).all(::validInput) } }) { "Data outlet tidak valid." }
@@ -96,10 +111,11 @@ object Calculation {
         require(r.id.matches(Regex("[a-f0-9-]{36}"))) { "ID laporan tidak valid." }
         require(r.products.size == 3 && r.testers.size == 3)
         require(listOf(r.rules.debtSign,r.rules.settlementSign,r.rules.transferSign,r.rules.expenseSign).all { it == 1 || it == -1 })
-        require(r.products.all { it.sales.size == 3 && listOf(it.delivery,it.sample,it.bonus,it.manualTg,it.opening).all(::validInput) && it.sales.all { s -> validInput(s.quantity) && validInput(s.price) } })
+        require(r.products.all { it.sales.size == 3 && listOf(it.delivery,it.sample,it.bonus,it.manualTg,it.opening,it.manualSold).all(::validInput) && it.sales.all { s -> validInput(s.quantity) && validInput(s.price) } })
         r.products.forEach { stock ->
             val sg = stock.sales[Tier.SG.ordinal]
             require(stock.sales[Tier.G.ordinal].applicable && stock.sales[Tier.RTL.ordinal].applicable)
+            if(r.independent) require(!sg.applicable) { "SG tidak berlaku untuk laporan baru." }
             if(!sg.applicable) {
                 require(sg.price == null && (sg.quantity ?: 0) == 0L) { "SG tidak berlaku untuk laporan ini." }
                 require(stock.sales.filter { it.applicable }.all { (it.price ?: 0) > 0 }) { "Harga resmi belum lengkap." }
@@ -108,8 +124,8 @@ object Calculation {
         require(r.testers.all { listOf(it.delivery,it.sample,it.manualTg,it.opening).all(::validInput) })
         require(validSigned(r.finance.previous) && validSigned(r.finance.manualBalance))
         require(listOf(r.finance.debt,r.finance.settlement,r.finance.transfer,r.finance.expense).all(::validInput))
-        require(r.formatVersion in 1..2 && r.stockSequence>0 && r.revision>=0)
-        if(r.formatVersion>=2) require(r.products.all { it.openingTracked } && r.testers.all { it.openingTracked })
+        require(r.formatVersion in 1..3 && r.stockSequence>0 && r.revision>=0)
+        if(r.usesLedger) require(r.products.all { it.openingTracked } && r.testers.all { it.openingTracked })
         java.time.LocalDate.parse(r.identity.date)
     }
     fun validate(s: Settings) {
@@ -118,7 +134,8 @@ object Calculation {
         java.time.LocalDate.parse(s.profile.date)
     }
     fun stockErrors(r: DailyReport): List<String> = buildList {
-        if(r.formatVersion<2) { add("Stok awal laporan lama belum diverifikasi."); return@buildList }
+        if(r.independent) return@buildList
+        if(!r.usesLedger) { add("Stok awal laporan lama belum diverifikasi."); return@buildList }
         r.products.forEachIndexed { p,s ->
             if(s.opening==null) add("${Product.entries[p].label}: isi Stok Awal atau ambil dari laporan sebelumnya.")
             if(s.delivery==null || s.sample==null || s.bonus==null || s.sales.any { it.applicable && it.quantity==null }) add("${Product.entries[p].label}: jumlah belum lengkap. Isi 0 jika tidak ada.")

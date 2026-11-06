@@ -70,10 +70,10 @@ object Layout {
             val activeTiers = stock.sales.indices.filter { stock.sales[it].applicable }
             val soldRefs = activeTiers.joinToString(",") { s.ref(base+2+it,13) }
             s.put(base,0,rs=2,cs=10,t=Product.entries[p].label,b=true,size=12f); s.put(base,10,rs=2,cs=14,t=Product.entries[p].label,b=true,size=12f)
-            val quantities=listOf(stock.delivery,Calculation.sold(stock),stock.sample,stock.bonus,Calculation.tg(stock,r.rules))
+            val quantities=listOf(stock.delivery,Calculation.stockSold(r,p),stock.sample,stock.bonus,Calculation.stockTg(r,p))
             listOf("DO","Jual","Sample","Bns","TG").forEachIndexed { k,label ->
                 s.put(base+2+k,0,cs=4,t="$label :",edges=11)
-                val f=when(k) {
+                val f=if(r.independent) null else when(k) {
                     1 -> "IF(COUNT($soldRefs)=0,\"\",SUM($soldRefs))"
                     4 -> if(stock.openingTracked) {
                         val opening="'_StokAwal'!\$B\$${p+2}"
@@ -108,11 +108,11 @@ object Layout {
             s.put(32,col,cs=span,t=Product.entries[p].label,b=true,center=true)
             listOf("DO","Sampel","TG").forEachIndexed { k,label ->
                 s.put(33+k,col,cs=3,t="$label :",size=8f,edges=11)
-                val f=if(k==2 && t.openingTracked) {
+                val f=if(r.independent) null else if(k==2 && t.openingTracked) {
                     val opening="'_StokAwal'!\$C\$${p+2}"
                     "IF(OR($opening=\"\",${s.ref(33,col+3)}=\"\",${s.ref(34,col+3)}=\"\"),\"\",$opening+${s.ref(33,col+3)}-${s.ref(34,col+3)})"
                 } else if(k==2 && r.rules.automaticTg) "IF(${s.ref(33,col+3)}=\"\",\"\",${s.ref(33,col+3)}-SUM(${s.ref(34,col+3)}))" else null
-                s.put(33+k,col+3,cs=span-3,n=listOf(t.delivery,t.sample,Calculation.tg(t,r.rules))[k],f=f,size=8f,edges=14)
+                s.put(33+k,col+3,cs=span-3,n=listOf(t.delivery,t.sample,Calculation.testerTg(r,p))[k],f=f,size=8f,edges=14)
             }
         }
         s.put(32,18,cs=6,t="G = GROSIR",b=true,border=false,center=true)
@@ -128,7 +128,7 @@ object Layout {
                     val refs=listOf(11,19,27).map { s.ref(it,20) }
                     "IF(OR($missingPrices),\"\",IF(COUNT(${refs.joinToString(",")})=0,\"\",SUM(${refs.joinToString(",")})))"
                 }
-                6 -> if(!r.rules.automaticFinance || !r.rules.acknowledged) null else {
+                6 -> if(r.independent || !r.rules.automaticFinance || !r.rules.acknowledged) null else {
                     val range="F40:F45"
                     val condition=if(r.formatVersion>=2) "COUNT($range)<6" else "COUNT($range)=0"
                     "IF(OR($missingPrices),\"\",IF($condition,\"\",SUM(F41,F40)${signed(r.rules.debtSign,"F42")}${signed(r.rules.settlementSign,"F43")}${signed(r.rules.transferSign,"F44")}${signed(r.rules.expenseSign,"F45")}))"
@@ -148,7 +148,7 @@ object Layout {
     }
     fun dailyWorkbook(r:DailyReport):List<Sheet> {
         val main=daily(r)
-        if(r.formatVersion<2) return listOf(main)
+        if(!r.usesLedger) return listOf(main)
         val helper=Sheet("_StokAwal",false,listOf(110.0,80.0,80.0,180.0),List(4){18.0},hidden=true)
         listOf("Produk","Stok Awal","Stok Awal Tester","Sumber / Penyesuaian").forEachIndexed { c,t->helper.put(0,c,t=t) }
         Product.entries.forEachIndexed { p,product ->

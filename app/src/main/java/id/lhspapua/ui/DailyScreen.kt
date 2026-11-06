@@ -14,8 +14,8 @@ import java.io.File
 
 @Composable internal fun DailyScreen(r:DailyReport,state:UiState,vm:LhsViewModel,save:(File)->Unit,share:(List<File>)->Unit,attach:()->Unit,advanced:()->Unit) {
     var section by rememberSaveable(r.id) { mutableIntStateOf(if(r.status==ReportStatus.FINAL||r.formatVersion<2)3 else vm.rememberedSection(r.id).coerceIn(0,3)) }
-    var product by rememberSaveable(r.id) { mutableIntStateOf(-1) }
-    var identity by rememberSaveable(r.id) { mutableStateOf(r.identity.sales.isBlank()) }
+    var product by rememberSaveable(r.id) { mutableIntStateOf(if(r.independent) 0 else -1) }
+    var identity by rememberSaveable(r.id) { mutableStateOf(!r.independent && r.identity.sales.isBlank()) }
     var correction by remember { mutableStateOf(false) }
     var legacy by remember { mutableStateOf(false) }
     var sequenceDialog by remember { mutableStateOf(false) }
@@ -31,36 +31,45 @@ import java.io.File
         ReportReview(state,vm,save,share,day=r,onEdit={ section=0 },onIssue=::route,onLegacy={ legacy=true })
     } else FlowFrame(pageKey="day-${r.id}-$section",state=state,vm=vm,primary="Periksa Laporan",onPrimary={ section=3;vm.flushPending() }) {
         ReportIdentity(r.identity,identity,{ identity=it },vm::updateIdentity) {
-            if(r.identity.sales.isBlank())vm.focus("Nama Sales") else vm.prepareDailyIdentity { identity=false }
+            if(r.independent) identity=false
+            else if(r.identity.sales.isBlank()) vm.focus("Nama Sales")
+            else vm.prepareDailyIdentity { identity=false }
         }
-        if(identity) {
+        if(identity && r.usesLedger) {
             val sameDate=state.days.filter { it.id!=r.id&&it.identity.date==r.identity.date&&it.identity.stockOwnerId==r.identity.stockOwnerId&&r.identity.stockOwnerId.isNotBlank() }
             if(sameDate.isNotEmpty())TextButton(onClick={ sequenceDialog=true }) { Text("Laporan lain pada tanggal ini") }
         }
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-            listOf("Barang","Tester","Keuangan").forEachIndexed { i,title->FilterChip(selected=section==i,onClick={ section=i;vm.flushPending() },label={ Text(title,style=MaterialTheme.typography.labelLarge) },modifier=Modifier.weight(1f)) }
+            listOf(if(r.independent) "Stok & Penjualan" else "Barang","Tester","Keuangan").forEachIndexed { i,title->FilterChip(selected=section==i,onClick={ section=i;vm.flushPending() },label={ Text(title,style=MaterialTheme.typography.labelLarge) },modifier=Modifier.weight(if(i==0 && r.independent) 1.6f else 1f)) }
         }
         if(state.busy)LinearProgressIndicator(Modifier.fillMaxWidth())
         when(section) {
             0->{
-                val source=state.days.find { it.id==r.stockSourceId }
-                if(r.products.any { it.opening==null })Notice("Belum ada stok sebelumnya. Masukkan stok awal untuk mulai.")
-                else if(source!=null)Text("Stok awal dari ${source.identity.displayDate()}",style=MaterialTheme.typography.bodySmall)
-                if(source!=null&&r.openingMode==OpeningMode.AUTO)TextButton(onClick={ correction=true }) { Text("Sesuaikan Stok Awal") }
+                if(r.usesLedger) {
+                    val source=state.days.find { it.id==r.stockSourceId }
+                    if(r.products.any { it.opening==null })Notice("Belum ada stok sebelumnya. Masukkan stok awal untuk mulai.")
+                    else if(source!=null)Text("Stok awal dari ${source.identity.displayDate()}",style=MaterialTheme.typography.bodySmall)
+                    if(source!=null&&r.openingMode==OpeningMode.AUTO)TextButton(onClick={ correction=true }) { Text("Sesuaikan Stok Awal") }
+                }
                 Product.entries.forEachIndexed { p,name->
                     val s=r.products[p];val ownIssues=issues.filter { it.section==0&&it.product==p }
                     Surface(onClick={ product=if(product==p)-1 else p },modifier=Modifier.fillMaxWidth(),color=if(product==p)MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,shape=MaterialTheme.shapes.small) {
                         Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                             Text(name.label,style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
-                            Text("${if(ownIssues.isEmpty())"Lengkap" else "Perlu diisi"} · Terjual ${runCatching { Calculation.number(Calculation.sold(s)) }.getOrDefault("—")} · Sisa ${runCatching { Calculation.number(Calculation.tg(s,r.rules)) }.getOrDefault("—")}",style=MaterialTheme.typography.bodySmall)
+                            if(r.independent) {
+                                Text("Total: ${Calculation.safeMoney(empty="—") { Calculation.productTotal(s) }}",style=MaterialTheme.typography.bodySmall)
+                            } else Text("${if(ownIssues.isEmpty())"Lengkap" else "Perlu diisi"} · Terjual ${runCatching { Calculation.number(Calculation.sold(s)) }.getOrDefault("—")} · Sisa ${runCatching { Calculation.number(Calculation.tg(s,r.rules)) }.getOrDefault("—")}",style=MaterialTheme.typography.bodySmall)
                             Text(if(product==p)"Tutup" else "Isi Stok & Penjualan",color=MaterialTheme.colorScheme.primary,style=MaterialTheme.typography.labelMedium)
                         }
                     }
-                    if(product==p)ProductEditor(r,p,state,vm)
+                    if(product==p) {
+                        if(r.independent) IndependentProductEditor(s,p,vm)
+                        else ProductEditor(r,p,state,vm)
+                    }
                 }
-                TotalLine("Total Penjualan",Calculation.safeMoney { Calculation.total(r) })
+                TotalLine("Total Penjualan",Calculation.safeMoney(empty="—") { Calculation.total(r) })
             }
-            1->{
+            1->if(r.independent) IndependentTesterEditor(r,vm) else {
                 Text("Tester",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
                 Text("Stok tester dicatat terpisah dari barang jual.",style=MaterialTheme.typography.bodySmall)
                 Product.entries.forEachIndexed { p,name->
@@ -87,6 +96,76 @@ import java.io.File
         AlertDialog(onDismissRequest={ sequenceDialog=false },title={ Text("Laporan pada tanggal yang sama") },text={ Column { Text("Setiap laporan mempunyai urutan berbeda. Laporan berikutnya memakai sisa stok laporan sebelumnya yang sudah final.");Numeric("Laporan ke",number) { number=it } } },confirmButton={ TextButton(onClick={ if(number!=null&&number!! in 1..Int.MAX_VALUE.toLong()) { vm.day { it.copy(stockSequence=number!!.toInt()) };sequenceDialog=false } }) { Text("Gunakan") } },dismissButton={ TextButton(onClick={ sequenceDialog=false }) { Text("Batal") } })
     }
 }
+@Composable private fun IndependentProductEditor(stock: Stock, product: Int, vm: LhsViewModel) {
+    fun update(change: (Stock) -> Stock) {
+        vm.day { report ->
+            report.copy(products=report.products.replace(product,change(report.products[product])))
+        }
+    }
+    Panel("Stok") {
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            Numeric("DO",stock.delivery,modifier=Modifier.weight(1f),tag="stock-$product-do") { n ->
+                update { it.copy(delivery=n) }
+            }
+            Numeric("Jual",stock.manualSold,modifier=Modifier.weight(1f),tag="stock-$product-sold") { n ->
+                update { it.copy(manualSold=n) }
+            }
+        }
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            Numeric("Sample",stock.sample,modifier=Modifier.weight(1f),tag="stock-$product-sample") { n ->
+                update { it.copy(sample=n) }
+            }
+            Numeric("Bns",stock.bonus,modifier=Modifier.weight(1f),tag="stock-$product-bonus") { n ->
+                update { it.copy(bonus=n) }
+            }
+            Numeric("TG",stock.manualTg,modifier=Modifier.weight(1f),tag="stock-$product-tg") { n ->
+                update { it.copy(manualTg=n) }
+            }
+        }
+        HorizontalDivider()
+        Text("Penjualan",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
+        listOf(Tier.G,Tier.RTL).forEach { tier ->
+            val index=tier.ordinal
+            val sale=stock.sales[index]
+            val label=if(tier==Tier.G) "Grosir (G)" else "Retail (RTL)"
+            Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
+                Numeric(label,sale.quantity,modifier=Modifier.weight(1f),tag="sale-$product-${tier.label}",done=tier==Tier.RTL) { n ->
+                    update { it.copy(sales=it.sales.replace(index,it.sales[index].copy(quantity=n))) }
+                }
+                Column(Modifier.weight(1.3f)) {
+                    Text("× ${Calculation.rupiah(sale.price)}",style=MaterialTheme.typography.bodySmall)
+                    Text(Calculation.safeMoney(empty="—") { Calculation.subtotal(sale) },fontWeight=FontWeight.SemiBold)
+                }
+            }
+        }
+        TotalLine("Total Produk",Calculation.safeMoney(empty="—") { Calculation.productTotal(stock) })
+    }
+}
+
+@Composable private fun IndependentTesterEditor(report: DailyReport, vm: LhsViewModel) {
+    Product.entries.forEachIndexed { index, product ->
+        val tester=report.testers[index]
+        fun update(change: (Tester) -> Tester) {
+            vm.day { current ->
+                current.copy(testers=current.testers.replace(index,change(current.testers[index])))
+            }
+        }
+        Panel(product.label) {
+            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                Numeric("DO",tester.delivery,modifier=Modifier.weight(1f),tag="tester-$index-do") { n ->
+                    update { it.copy(delivery=n) }
+                }
+                Numeric("Sampel",tester.sample,modifier=Modifier.weight(1f),tag="tester-$index-sample") { n ->
+                    update { it.copy(sample=n) }
+                }
+                Numeric("TG",tester.manualTg,modifier=Modifier.weight(1f),tag="tester-$index-tg",done=index==2) { n ->
+                    update { it.copy(manualTg=n) }
+                }
+            }
+        }
+    }
+}
+
 @Composable private fun ProductEditor(r:DailyReport,p:Int,state:UiState,vm:LhsViewModel) {
     val stock=r.products[p]
     val historicalPrices = stock.sales[Tier.SG.ordinal].applicable
@@ -138,23 +217,23 @@ import java.io.File
 @Composable private fun FinanceEditor(r:DailyReport,vm:LhsViewModel,attach:()->Unit,advanced:()->Unit) {
     val f=r.finance
     Text("Keuangan",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
-    TotalLine("Total Penjualan",Calculation.safeMoney { Calculation.total(r) })
-    Numeric("Saldo Sebelum",f.previous,money=true,signed=true,error=if(f.previous==null)"Isi saldo sebelumnya, termasuk 0 jika tidak ada" else null) { n->vm.day { it.copy(finance=it.finance.copy(previous=n)) } }
+    TotalLine("Total Penjualan",Calculation.safeMoney(empty="—") { Calculation.total(r) })
+    Numeric("Saldo Sebelum",f.previous,money=true,signed=true,error=if(!r.independent&&f.previous==null)"Isi saldo sebelumnya, termasuk 0 jika tidak ada" else null) { n->vm.day { it.copy(finance=it.finance.copy(previous=n)) } }
     Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
         Numeric("Piutang",f.debt,money=true,modifier=Modifier.weight(1f)) { n->vm.day { it.copy(finance=it.finance.copy(debt=n)) } }
         Numeric("Pelunasan",f.settlement,money=true,modifier=Modifier.weight(1f)) { n->vm.day { it.copy(finance=it.finance.copy(settlement=n)) } }
     }
     Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
         Numeric("Transfer",f.transfer,money=true,modifier=Modifier.weight(1f)) { n->vm.day { it.copy(finance=it.finance.copy(transfer=n)) } }
-        Numeric("Pengeluaran",f.expense,money=true,modifier=Modifier.weight(1f),done=true) { n->vm.day { it.copy(finance=it.finance.copy(expense=n)) } }
+        Numeric("Pengeluaran",f.expense,money=true,modifier=Modifier.weight(1f),done=!r.independent) { n->vm.day { it.copy(finance=it.finance.copy(expense=n)) } }
     }
-    if(!r.rules.automaticFinance)Numeric("Saldo Akhir Manual",f.manualBalance,money=true,signed=true,done=true) { n->vm.day { it.copy(finance=it.finance.copy(manualBalance=n)) } }
+    if(r.independent || !r.rules.automaticFinance)Numeric(if(r.independent) "Saldo Akhir" else "Saldo Akhir Manual",f.manualBalance,money=true,signed=true,done=true) { n->vm.day { it.copy(finance=it.finance.copy(manualBalance=n)) } }
     else TotalLine("Saldo Akhir",Calculation.safeMoney { Calculation.balance(r) })
-    if(r.rules.automaticFinance&&!r.rules.acknowledged) {
+    if(!r.independent&&r.rules.automaticFinance&&!r.rules.acknowledged) {
         Notice("Aturan saldo belum disetujui. Verifikasi sekali, atau pilih saldo manual.")
         OutlinedButton(onClick=advanced,modifier=Modifier.fillMaxWidth()) { Text("Atur Keuangan") }
     }
-    TextButton(onClick={ vm.day { it.copy(finance=it.finance.copy(previous=f.previous ?: 0,debt=f.debt ?: 0,settlement=f.settlement ?: 0,transfer=f.transfer ?: 0,expense=f.expense ?: 0)) } }) { Text("Tidak Ada — Isi Uang Kosong 0") }
+    if(!r.independent)TextButton(onClick={ vm.day { it.copy(finance=it.finance.copy(previous=f.previous ?: 0,debt=f.debt ?: 0,settlement=f.settlement ?: 0,transfer=f.transfer ?: 0,expense=f.expense ?: 0)) } }) { Text("Tidak Ada — Isi Uang Kosong 0") }
     TextInput("Keterangan",f.notes,true) { text->vm.day { it.copy(finance=it.finance.copy(notes=text)) } }
     TextInput("Dibuat Oleh",f.madeBy,done=true) { text->vm.day { it.copy(finance=it.finance.copy(madeBy=text)) } }
     OutlinedButton(onClick=attach,modifier=Modifier.fillMaxWidth()) { Text("Tambah Bukti Transfer / Biaya") }

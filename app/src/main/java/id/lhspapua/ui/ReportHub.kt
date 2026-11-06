@@ -12,7 +12,7 @@ import id.lhspapua.domain.*
 @Composable internal fun HomeScreen(state:UiState,vm:LhsViewModel,settings:()->Unit) {
     ScrollPage {
         HomeAction("CALLSHEET","Catat kunjungan outlet dan jumlah penjualan.") { vm.navigate("calls") }
-        HomeAction("LAPORAN HARIAN","Catat stok barang, uang penjualan, tester, dan saldo.") { vm.navigate("days") }
+        HomeAction("LAPORAN HARIAN","Isi stok, penjualan, tester, dan keuangan.") { vm.navigate("days") }
         val recentCall=state.calls.find { it.id==state.lastId&&!it.completed }
         val recentDay=state.days.find { it.id==state.lastId&&it.status==ReportStatus.DRAFT }
         val call=recentCall ?: if(recentDay==null&&state.lastType!="day")state.calls.firstOrNull { !it.completed } else null
@@ -64,7 +64,7 @@ import id.lhspapua.domain.*
             val rows=state.days.filter { "${it.identity.date} ${it.identity.sales} ${it.identity.route}".contains(query,true) }.sortedWith(compareByDescending<DailyReport> { it.identity.date }.thenByDescending { it.stockSequence })
             rows.forEach { r->
                 ReportRow(r.identity,if(r.stockStale)"Perlu diperiksa" else if(r.status==ReportStatus.FINAL)"Final" else "Draf") { vm.open(r) }
-                ConfirmButton("Hapus","Hapus laporan ${r.identity.displayDate()}? Stok laporan terkait akan diperiksa ulang.") { vm.removeDay(r) };HorizontalDivider()
+                ConfirmButton("Hapus","Hapus laporan ${r.identity.displayDate()}?${if(r.usesLedger) " Stok laporan terkait akan diperiksa ulang." else ""}") { vm.removeDay(r) };HorizontalDivider()
             }
             if(rows.isEmpty())Text("Belum ada laporan yang sesuai.")
         } else {

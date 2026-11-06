@@ -27,6 +27,10 @@ class Repository(private val context: Context, private val db: LhsDatabase = Lhs
     private suspend fun writeDay(r:DailyReport) { Calculation.validate(r); dao.save(DailyEntity(r.id,r.identity.date,r.identity.sales,json.encodeToString(r))) }
     suspend fun allDaily() = dao.allDaily().map { json.decodeFromString<DailyReport>(it.payload) }
     suspend fun saveDay(r:DailyReport):StockLedger.Result = db.withTransaction {
+        if(r.independent) {
+            writeDay(r)
+            return@withTransaction StockLedger.Result(listOf(r),emptyList())
+        }
         val before=allDaily()
         val result=StockLedger.reconcile(before,r)
         val existing=before.associateBy { it.id }
@@ -47,13 +51,18 @@ class Repository(private val context: Context, private val db: LhsDatabase = Lhs
     suspend fun daily(id: String) = dao.day(id)?.let { json.decodeFromString<DailyReport>(it.payload) }
     suspend fun deleteCall(id: String) = dao.deleteCall(id)
     suspend fun deleteDaily(id: String) = db.withTransaction {
+        if(daily(id)?.independent == true) {
+            dao.deleteDaily(id)
+            return@withTransaction
+        }
         val all=allDaily(); dao.deleteDaily(id)
         val remaining=all.filterNot { it.id==id }
         if(remaining.isNotEmpty()) {
             // A deleted predecessor cannot silently become a different source for a final report.
             val orphaned=remaining.map { if(it.stockSourceId==id) it.copy(stockStale=true,stockIssue="Sumber stok telah dihapus. Periksa ulang Stok Awal laporan ini.") else it }
-            val result=StockLedger.reconcile(orphaned,orphaned.first())
-            result.reports.forEach { writeDay(it) }
+            orphaned.firstOrNull { it.usesLedger }?.let { changed ->
+                StockLedger.reconcile(orphaned,changed).reports.filter { it.usesLedger }.forEach { writeDay(it) }
+            }
         }
     } // orphan cleanup happens only on explicit storage cleanup
     fun attachment(a: Attachment): File {
@@ -122,7 +131,10 @@ class Repository(private val context: Context, private val db: LhsDatabase = Lhs
                 } }) }
                 db.withTransaction { data.calls.forEach { save(it) }; restored.forEach { writeDay(it) }; save(data.settings)
                     val all=allDaily()
-                    if(all.isNotEmpty()) StockLedger.reconcile(all,all.first()).reports.forEach { writeDay(it) } }
+                    all.firstOrNull { it.usesLedger }?.let { changed ->
+                        StockLedger.reconcile(all,changed).reports.filter { it.usesLedger }.forEach { writeDay(it) }
+                    }
+                }
             } catch(e: Exception) { newFiles.forEach { it.delete() }; throw e }
         } finally { stage.deleteRecursively() }
     }
