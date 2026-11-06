@@ -6,9 +6,11 @@ import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
@@ -19,7 +21,11 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
+import id.lhspapua.R
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import kotlinx.coroutines.Dispatchers
@@ -60,10 +66,10 @@ object NativePdfPreview {
 }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun DocumentPreview(file:File,onClose:()->Unit) {
-    var page by remember(file) { mutableIntStateOf(0) }
+    var page by rememberSaveable(file.absolutePath) { mutableIntStateOf(0) }
     var rendered by remember(file) { mutableStateOf<RenderedPage?>(null) }
     var error by remember(file) { mutableStateOf<String?>(null) }
-    var zoom by remember(file,page) { mutableFloatStateOf(1f) }
+    var zoom by rememberSaveable(file.absolutePath,page) { mutableFloatStateOf(1f) }
     var offset by remember(file,page) { mutableStateOf(Offset.Zero) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     LaunchedEffect(file,page) {
@@ -73,7 +79,7 @@ object NativePdfPreview {
         catch(e:Exception) { error=e.message ?: "Pratinjau tidak dapat dibuka." }
     }
     Dialog(onDismissRequest=onClose,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
-        Scaffold(contentWindowInsets=WindowInsets.safeDrawing,topBar={ TopAppBar(title={ Text("Pratinjau PDF") },navigationIcon={ TextButton(onClick=onClose) { Text("Kembali") } }) }) { padding ->
+        Scaffold(contentWindowInsets=WindowInsets.safeDrawing,topBar={ TopAppBar(title={ Text("Pratinjau PDF") },navigationIcon={ IconButton(onClick=onClose) { Icon(painterResource(R.drawable.nav_back),"Kembali") } }) }) { padding ->
             Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
                 val image=rendered
                 if(error!=null) Text(error!!,Modifier.padding(20.dp),color=MaterialTheme.colorScheme.error)
@@ -92,25 +98,29 @@ object NativePdfPreview {
                             offset=PreviewGeometry.clamp(PreviewGeometry.gesture(offset,zoom,newZoom,centroid,pan,width,height),newZoom,bw,bh,width,height)
                             zoom=newZoom
                         }
-                        Box(Modifier.fillMaxSize().pointerInput(file,page,width,height) { detectTransformGestures { centroid,pan,change,_ -> setZoom(zoom*change,pan,centroid) } }) {
+                        Box(Modifier.fillMaxSize()
+                            .pointerInput(file,page,width,height) {
+                                detectTransformGestures { centroid,pan,change,_ -> setZoom(zoom*change,pan,centroid) }
+                            }
+                            .pointerInput(file,page,width,height) {
+                                detectTapGestures(onDoubleTap={ point -> setZoom(if(zoom>1f)1f else 2.5f,Offset.Zero,point) })
+                            }
+                        ) {
                         Image(image.bitmap.asImageBitmap(),contentDescription="Halaman ${page+1} dari ${image.pageCount}",contentScale=ContentScale.Fit,
                             modifier=Modifier.fillMaxSize().graphicsLayer(scaleX=zoom,scaleY=zoom,translationX=offset.x,translationY=offset.y))
                         }
 
                     }
                 }
-                Surface(tonalElevation=3.dp) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal=12.dp,vertical=8.dp)) {
-                        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
-                            TextButton(onClick={ zoom=(zoom/1.25f).coerceAtLeast(1f);offset=Offset.Zero },enabled=zoom>1f) { Text("Perkecil −") }
-                            Text(if(zoom==1f)"Halaman utuh" else String.format(java.util.Locale.forLanguageTag("id-ID"),"%.1f×",zoom),Modifier.padding(top=12.dp))
-                            TextButton(onClick={ zoom=(zoom*1.25f).coerceAtMost(6f) },enabled=zoom<6f) { Text("Perbesar +") }
-                        }
-                        if(image!=null && image.pageCount>1)Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
-                            TextButton(onClick={ page-- },enabled=page>0) { Text("Sebelumnya") }
-                            Text("${page+1} / ${image?.pageCount ?: "…"}",Modifier.padding(top=12.dp))
-                            TextButton(onClick={ page++ },enabled=image!=null && page+1<image.pageCount) { Text("Berikutnya") }
-                        }
+                Surface(tonalElevation=2.dp) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal=8.dp),
+                        verticalAlignment=androidx.compose.ui.Alignment.CenterVertically,
+                        horizontalArrangement=Arrangement.SpaceBetween) {
+                        if(image!=null && image.pageCount>1)TextButton(onClick={ page-- },enabled=page>0) { Text("‹ Hal.") }
+                        TextButton(onClick={ zoom=(zoom/1.25f).coerceAtLeast(1f);offset=Offset.Zero },enabled=zoom>1f,modifier=Modifier.semantics { contentDescription="Perkecil" }) { Text("−") }
+                        Text(if(image==null)"…" else "${page+1} / ${image.pageCount}",style=MaterialTheme.typography.labelLarge)
+                        TextButton(onClick={ zoom=(zoom*1.25f).coerceAtMost(6f) },enabled=zoom<6f,modifier=Modifier.semantics { contentDescription="Perbesar" }) { Text("+") }
+                        if(image!=null && image.pageCount>1)TextButton(onClick={ page++ },enabled=page+1<image.pageCount) { Text("Hal. ›") }
                     }
                 }
             }

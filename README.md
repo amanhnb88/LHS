@@ -2,14 +2,16 @@
 
 Aplikasi Android native Kotlin / Jetpack Compose untuk sales Papua. Android 8.0 (API 26) atau lebih baru. Seluruh data lokal, tanpa login, server, WebView atau izin internet.
 
-## Penggunaan versi 1.2.2
+## Penggunaan versi 1.2.3
 
-Beranda memuat dua pilihan laporan. Mengetuk jenis laporan membuka daftar draf, bukan membuat laporan kosong. Pilih **Lanjutkan** atau **Buat Laporan Baru**. Draf terakhir juga tersedia langsung di beranda. Perubahan disimpan otomatis. Status **Tersimpan** muncul setelah antrean selesai. Snapshot input terbaru dijurnal untuk pemulihan jika proses berhenti sebelum Room selesai menulis.
+Tab bawah menyediakan **Beranda**, **Callsheet**, **LHS**, dan **Riwayat**. Pilih **Buat Laporan Baru** untuk menambah laporan. Beranda menyediakan **Lanjutkan Laporan** saat ada draf. Ikon Pengaturan tersedia di bilah atas tab utama. Tema mengikuti setelan sistem.
+
+Back dari editor kembali melalui layar terkait dan tab asal. Back dari tab selain Beranda menuju Beranda. Dari Beranda, konfirmasi **Keluar** menunggu antrean simpan. Jika simpan gagal, pilih **Coba Lagi** atau **Batal** untuk tetap di aplikasi. Perubahan disimpan otomatis dan input terbaru dijurnal untuk pemulihan saat proses berhenti sebelum Room selesai menulis.
 
 - **Callsheet:** identitas → cari nama/alamat outlet langsung → pilih saran atau tambah outlet baru → tiga baris Stok/Jual → **Simpan & Tambah Outlet**. Outlet baru hanya menyalin nama dan alamat, tanpa transaksi lama. Untuk kunjungan yang sudah dicatat gunakan **Simpan Perubahan**. **Daftar Kunjungan** menyediakan pencarian, edit dan hapus dengan konfirmasi. **Periksa Laporan** menampilkan total dan ekspor. Keenam kolom angka boleh diisi sendiri-sendiri. Jumlah dihitung per kolom dan kolom tanpa angka tampil kosong.
-- **Laporan Harian:** buka produk pada **Stok & Penjualan**, lalu isi kolom yang diketahui. DO, Jual, Sample, Bns, dan TG diisi terpisah dari G/RTL. **Tester** menyediakan DO, Sampel, dan TG manual. Pada **Keuangan**, Total Penjualan dihitung otomatis dan saldo serta transaksi lainnya diisi manual.
-- **Pemeriksaan:** **Periksa Laporan** membuka pratinjau, simpan, dan bagikan PDF/Excel. Laporan harian baru dapat diekspor saat masih draf. Pilih **Selesaikan Laporan** untuk mengunci draf dan **Buka Kembali untuk Edit** bila perlu memperbaikinya.
-- **Pratinjau PDF:** dibuka sebagai halaman utuh, mendukung lebar layar, perbesar/perkecil, pinch/pan dan reset. Navigasi halaman muncul untuk dokumen banyak halaman. Angka zoom menunjukkan kelipatan tampilan halaman utuh, bukan ukuran cetak.
+- **Laporan Harian:** pilih produk pada bilah **Stok & Penjualan**, lalu isi kolom yang diketahui. DO, Jual, Sample, Bns, dan TG diisi terpisah dari G/RTL. **Tester** menyediakan DO, Sampel, dan TG manual. Pada **Keuangan**, Total Penjualan dihitung otomatis dan saldo serta transaksi lainnya diisi manual.
+- **Pemeriksaan:** **Periksa Laporan** menyediakan pilihan PDF dan Excel dengan aksi sesuai format. Laporan harian baru dapat diekspor saat masih draf. Pilih **Selesaikan Laporan** untuk mengunci draf dan **Buka Kembali untuk Edit** bila perlu memperbaikinya.
+- **Pratinjau PDF:** dibuka sebagai halaman utuh, mendukung lebar layar, ketuk dua kali, pinch, geser, dan reset. Indikator halaman dan kontrol zoom ada di bilah bawah.
 - **Pengaturan:** Profil Sales, Harga Produk, Daftar Outlet, Backup Data, dan Pengaturan Lanjutan. Harga dan aturan tetap snapshot per laporan. Lampiran disalin ke penyimpanan internal dan dibagikan sebagai file terpisah.
 
 Callsheet dan Laporan Harian mempunyai identitas, transaksi, riwayat dan ekspor sendiri. Tidak ada pengambilan transaksi atau stok dari Callsheet ke Laporan Harian.
@@ -30,7 +32,7 @@ Laporan format 3 menyimpan Jual STOCK, TG STOCK, TG TESTER, serta Saldo Akhir se
 
 ## Kompatibilitas data
 
-Application ID tetap `id.lhspapua`; versi 1.2.2 memakai versionCode 5 dan kunci penandatanganan yang sama. SQL Room tetap schema version 1, tanpa destructive migration. Kolom baru bersifat tambahan pada payload JSON dengan nilai default aman. Laporan lama mempertahankan ID, transaksi, harga, aturan, lampiran dan hasil rumus lamanya. Konversi ke pencatatan Stok Awal hanya melalui tindakan **Lengkapi Stok Awal Laporan Lama** dan konfirmasi.
+Application ID tetap `id.lhspapua`; versi 1.2.3 memakai versionCode 6 dan kunci penandatanganan yang sama. SQL Room tetap schema version 1, tanpa destructive migration. Kolom baru bersifat tambahan pada payload JSON dengan nilai default aman. Laporan lama mempertahankan ID, transaksi, harga, aturan, lampiran dan hasil rumus lamanya. Konversi ke pencatatan Stok Awal hanya melalui tindakan **Lengkapi Stok Awal Laporan Lama** dan konfirmasi.
 
 Backup versi 2 mempertahankan sumber, urutan, pembukaan stok, status final dan lampiran. Restore menerima versi 1 dan 2, memvalidasi sebelum transaksi, lalu merekonsiliasi seluruh laporan bersama. Simpan backup sebelum mengganti HP atau menghapus data aplikasi.
 
@@ -52,7 +54,7 @@ Release memerlukan environment `LHS_KEYSTORE_PATH`, `LHS_KEYSTORE_PASSWORD`, `LH
 ./gradlew testReleaseUnitTest assembleRelease
 ```
 
-Satu workflow `.github/workflows/android-release.yml` untuk rilis manual. Push Stage 3.2 dari baseline yang telah diverifikasi menjalankan satu build rilis; push berikutnya tidak memenuhi kondisi job tersebut. Empat GitHub Secrets: `LHS_KEYSTORE_BASE64`, `LHS_KEYSTORE_PASSWORD`, `LHS_KEY_ALIAS`, `LHS_KEY_PASSWORD`. Jangan commit keystore/password. Gunakan kunci yang sama untuk semua pembaruan APK.
+Satu workflow `.github/workflows/android-release.yml` untuk rilis manual. Push Stage 3.3 dari baseline yang telah diverifikasi menjalankan satu build rilis; push berikutnya tidak memenuhi kondisi job tersebut. Empat GitHub Secrets: `LHS_KEYSTORE_BASE64`, `LHS_KEYSTORE_PASSWORD`, `LHS_KEY_ALIAS`, `LHS_KEY_PASSWORD`. Jangan commit keystore/password. Gunakan kunci yang sama untuk semua pembaruan APK.
 
 Lihat `docs/VERIFICATION.md` untuk bukti pengujian dan batas verifikasi. Tidak ada klaim pengujian perangkat fisik jika belum dijalankan.
 

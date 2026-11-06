@@ -8,6 +8,11 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.Assert.*
 import android.content.Context
+import android.view.KeyEvent
+import androidx.lifecycle.Lifecycle
+import androidx.test.core.app.ActivityScenario
+import androidx.test.platform.app.InstrumentationRegistry
+import id.lhspapua.data.Repository
 import java.io.File
 import androidx.test.core.app.ApplicationProvider
 import androidx.core.view.ViewCompat
@@ -17,25 +22,105 @@ import id.lhspapua.domain.Calculation
 import id.lhspapua.domain.Product
 import id.lhspapua.ui.LhsViewModel
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import id.lhspapua.ui.NativePdfPreview
 
 /** Device acceptance smoke; not counted as physical-device verification until connectedDebugAndroidTest runs. */
 class NativeFlowTest {
     @get:Rule val compose=createAndroidComposeRule<MainActivity>()
     private fun click(text:String) { val node=compose.onNode(hasText(text) and hasClickAction());runCatching { node.performScrollTo() };node.performClick() }
+    private fun tab(route:String)=compose.onNodeWithTag("tab-$route")
+    private fun start()=compose.waitUntil(15000) { compose.onAllNodesWithText("Belum ada draf").fetchSemanticsNodes().isNotEmpty() || compose.onAllNodesWithText("Lanjutkan Laporan").fetchSemanticsNodes().isNotEmpty() }
+    private fun back()=InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+    private fun imeVisible()=compose.runOnIdle {
+        ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime())==true
+    }
+    private fun hideIme() {
+        if(imeVisible())back()
+        compose.waitUntil(10000) { !imeVisible() }
+    }
+
     @Test fun nativeCompactCallInput() {
-        compose.waitUntil(15000) { compose.onAllNodesWithText("CALLSHEET").fetchSemanticsNodes().isNotEmpty() }
-        click("CALLSHEET");click("Buat Laporan Baru")
-        compose.onNodeWithText("Nama Sales").performScrollTo().performTextReplacement("Sales Uji Perangkat")
+        start()
+        tab("calls").performClick()
+        click("Buat Laporan Baru")
+        if(compose.onAllNodesWithTag("Nama Sales").fetchSemanticsNodes().isEmpty())click("Ubah tanggal / identitas")
+        compose.onNodeWithTag("Nama Sales").performScrollTo().performTextReplacement("Sales Uji Perangkat")
+        hideIme()
         click("Gunakan Identitas");click("Tambah Outlet")
-        compose.onNodeWithText("Nama Outlet").performScrollTo().performTextInput("Toko Uji")
-        compose.onNodeWithText("Alamat").performScrollTo().performTextInput("Jayapura")
-        repeat(3) { p->compose.onNodeWithTag("call-$p-stock").performScrollTo().performTextReplacement("10");compose.onNodeWithTag("call-$p-sold").performScrollTo().performTextReplacement("3") }
-        click("Simpan & Tambah Outlet")
-        compose.waitUntil(10000) { compose.onAllNodesWithText("Daftar Kunjungan").fetchSemanticsNodes().isNotEmpty() }
-        click("Daftar Kunjungan")
-        compose.onNodeWithText("1. Toko Uji").performScrollTo().assertExists();click("Periksa Laporan")
-        compose.onAllNodesWithText("Stok 10 · Jual 3").assertCountEquals(3)
+        compose.onNodeWithTag("Nama Outlet").performScrollTo().performTextReplacement("Toko Uji")
+        compose.onNodeWithTag("Alamat").performScrollTo().performTextReplacement("Jayapura")
+        val field=compose.onNodeWithTag("call-1-sold").performScrollTo()
+        field.performClick()
+        compose.waitUntil(15000) { imeVisible() }
+        field.performTextReplacement("200")
+        compose.onNodeWithText("Simpan & Tambah Outlet").assertDoesNotExist()
+        back()
+        compose.waitUntil(10000) { !imeVisible() }
+        field.assertExists()
+        back()
+        compose.onNodeWithText("1. Toko Uji").performScrollTo().assertExists()
+        click("Periksa Laporan")
+        compose.onNodeWithText("Stok — · Jual 200").assertExists()
+        click("Pratinjau Draf PDF")
+        compose.waitUntil(15000) { compose.onAllNodesWithContentDescription("Halaman 1 dari 1").fetchSemanticsNodes().isNotEmpty() }
+        back()
+        compose.onNodeWithText("Pratinjau PDF").assertDoesNotExist()
+        compose.onNodeWithText("Periksa Laporan").assertExists()
+        back()
+        compose.onNodeWithText("1. Toko Uji").performScrollTo().assertExists()
+        back()
+        tab("calls").assertIsSelected()
+    }
+
+    @Test fun tabsSettingsRecreationAndSafeExit() {
+        val vm=compose.runOnIdle { ViewModelProvider(compose.activity)[LhsViewModel::class.java] }
+        compose.waitUntil(20000) { vm.state.value.ready && vm.state.value.pending==0 }
+        val counts=runBlocking { vm.repository.calls.first().size to vm.repository.allDaily().size }
+        for(route in listOf("calls","days","history","home")) {
+            tab(route).performClick()
+            tab(route).assertIsSelected()
+        }
+        assertEquals(counts,runBlocking { vm.repository.calls.first().size to vm.repository.allDaily().size })
+        tab("history").performClick()
+        compose.onNodeWithContentDescription("Pengaturan").performClick()
+        click("Profil Sales")
+        back()
+        compose.onNode(hasText("Daftar Outlet") and hasClickAction()).assertExists()
+        back()
+        tab("history").assertIsSelected()
+        back()
+        tab("home").assertIsSelected()
+        back()
+        compose.onNodeWithText("Keluar dari LHS Papua?").assertExists()
+        back()
+        compose.onNodeWithText("Keluar dari LHS Papua?").assertDoesNotExist()
+        back()
+        click("Batal")
+        tab("home").assertIsSelected()
+
+        tab("calls").performClick()
+        click("Buat Laporan Baru")
+        val id=vm.state.value.call!!.id
+        compose.runOnIdle { vm.call { it.copy(identity=it.identity.copy(sales="Simpan Saat Keluar")) } }
+        compose.activityRule.scenario.recreate()
+        assertEquals(id,vm.state.value.call!!.id)
+        compose.onNodeWithTag("outlet-search").assertExists()
+        back()
+        tab("calls").assertIsSelected()
+        back()
+        back()
+        click("Keluar")
+        val deadline=android.os.SystemClock.uptimeMillis()+20000
+        while(compose.activityRule.scenario.state!=Lifecycle.State.DESTROYED && android.os.SystemClock.uptimeMillis()<deadline) {
+            android.os.SystemClock.sleep(50)
+        }
+        assertEquals(Lifecycle.State.DESTROYED,compose.activityRule.scenario.state)
+        ActivityScenario.launch(MainActivity::class.java).use {
+            val ctx=ApplicationProvider.getApplicationContext<Context>()
+            val stored=runBlocking { Repository(ctx).call(id) }
+            assertEquals("Simpan Saat Keluar",stored?.identity?.sales)
+        }
     }
 
     @Test fun nativePreviewRendersAndNavigatesTwoPages() {
@@ -52,8 +137,8 @@ class NativeFlowTest {
     }
 
     @Test fun nativeDailyKeepsManualValuesThroughResumeAndExport() {
-        compose.waitUntil(15000) { compose.onAllNodesWithText("LAPORAN HARIAN").fetchSemanticsNodes().isNotEmpty() }
-        click("LAPORAN HARIAN")
+        start()
+        tab("days").performClick()
         click("Buat Laporan Baru")
         val vm=compose.runOnIdle { ViewModelProvider(compose.activity)[LhsViewModel::class.java] }
         fun field(tag:String)=compose.onNodeWithTag(tag).performScrollTo()
@@ -78,37 +163,53 @@ class NativeFlowTest {
         input("sale-0-G","10")
         input("sale-0-RTL","20")
         field("sale-0-RTL").performImeAction()
+        hideIme()
         click(Product.MARTIL.label)
         input("stock-1-sold","100")
         input("sale-1-G","20")
         input("sale-1-RTL","50")
         field("sale-1-RTL").performImeAction()
+        hideIme()
         click(Product.HD_LIGHT.label)
         input("sale-2-G","10")
         input("sale-2-RTL","10")
         field("sale-2-RTL").performImeAction()
 
+        hideIme()
         click("Tester")
         input("tester-2-do","10")
         input("tester-2-sample","3")
         input("tester-2-tg","5")
         field("tester-2-tg").performImeAction()
+        hideIme()
         click("Keuangan")
         input("Saldo Sebelum","50000")
         input("Saldo Akhir","12345")
         field("Saldo Akhir").performImeAction()
         saved()
-        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
-        compose.waitUntil(15000) { vm.state.value.screen=="home" && vm.state.value.days.any { it.id==id } }
+        hideIme()
+        back()
+        compose.onNodeWithTag("tester-2-tg").assertExists()
+        back()
+        compose.onNodeWithTag("sale-2-RTL").assertExists()
+        back()
+        tab("days").assertIsSelected()
+        tab("home").performClick()
+        compose.waitUntil(15000) { vm.state.value.days.any { it.id==id } }
         click("Lanjutkan Laporan")
         assertEquals(id,vm.state.value.day!!.id)
         click("Stok & Penjualan")
+        hideIme()
         click(Product.MARTIL.label)
         input("stock-1-sold","125")
+        hideIme()
+        click(Product.MARTIL_12.label)
+        field("stock-0-sold").assertTextContains("100")
         click("Periksa Laporan")
         compose.onNodeWithText("Total Penjualan: Rp 1.860.000").performScrollTo().assertExists()
         compose.onNodeWithText("Saldo Akhir: Rp 12.345").assertExists()
         compose.onNodeWithText("Simpan PDF").performScrollTo().assertIsEnabled()
+        click("Excel")
         compose.onNodeWithText("Simpan Excel").performScrollTo().assertIsEnabled()
         compose.runOnIdle { vm.export() }
         saved()

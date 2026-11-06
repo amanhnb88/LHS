@@ -2,6 +2,7 @@ package id.lhspapua
 
 import android.app.Application
 import android.os.Looper
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import androidx.test.core.app.ApplicationProvider
 import id.lhspapua.domain.*
@@ -45,9 +46,10 @@ class DraftRecoveryTest {
         app.getSharedPreferences("draft-journal",0).edit().putString("call:${draft.id}",old.repository.json.encodeToString(draft)).commit()
         app.getSharedPreferences("navigation",0).edit().putString("id",draft.id).putString("type","call").commit()
         old.viewModelScope.cancel()
-        val reopened=LhsViewModel(app);until { reopened.state.value.ready }
+        val navigation=SavedStateHandle(mapOf("root" to "calls","screen" to "call","callId" to draft.id))
+        val reopened=LhsViewModel(app,navigation);until { reopened.state.value.ready }
         val restored=runBlocking { reopened.repository.call(draft.id) }
-        assertEquals(draft,restored);assertEquals("home",reopened.state.value.screen);assertEquals(draft.id,reopened.state.value.lastId)
+        assertEquals(draft,restored);assertEquals("call",reopened.state.value.screen);assertEquals("calls",reopened.state.value.root);assertEquals(draft.id,reopened.state.value.lastId)
         assertFalse(app.getSharedPreferences("draft-journal",0).contains("call:${draft.id}"));reopened.viewModelScope.cancel()
     }
     @Test fun switchingToAutomaticWithoutSourcePreservesManualOpening() {

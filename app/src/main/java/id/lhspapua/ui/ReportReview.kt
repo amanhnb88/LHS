@@ -19,10 +19,12 @@ import java.io.File
     val identity=call?.identity ?: day!!.identity
     val context=LocalContext.current
     var finish by remember { mutableStateOf(false) };var reopen by remember { mutableStateOf(false) };var allErrors by rememberSaveable { mutableStateOf(false) }
+    var excel by rememberSaveable { mutableStateOf(false) }
     val distributable=issues.isEmpty()&&(complete||legacy||independent)
     ScrollPage(pageKey="review-${call?.id ?: day?.id}") {
         Text("Periksa Laporan",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
-        Text("${identity.displayDate()} · ${identity.sales}")
+        Text(if(call!=null)"Callsheet" else "Laporan Harian",fontWeight=FontWeight.SemiBold)
+        Text("${identity.displayDate()} · ${identity.sales.ifBlank { "Sales belum diisi" }}")
         Text(if(complete)"Laporan selesai" else if(legacy)"Laporan lama" else "Draf",color=MaterialTheme.colorScheme.primary)
         SaveStatus(state,vm)
         if(call!=null) {
@@ -56,24 +58,34 @@ import java.io.File
         }
         if(!complete&&!legacy)Button(onClick={ if(independent) vm.finalizeDay {} else finish=true },enabled=issues.isEmpty()&&!state.busy,modifier=Modifier.fillMaxWidth()) { Text("Selesaikan Laporan") }
         HorizontalDivider()
-        Text("PDF",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
-        Text(if(call!=null)"A4 landscape · 30 baris per halaman" else "A4 portrait",style=MaterialTheme.typography.bodySmall)
-        OutlinedButton(onClick={ vm.export(preview=true) },enabled=issues.isEmpty()&&!state.busy,modifier=Modifier.fillMaxWidth()) { Text(if(complete||legacy||independent)"Pratinjau PDF" else "Pratinjau Draf PDF") }
+        Text("Ekspor",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick={ vm.export(onReady=save) },enabled=distributable&&!state.busy,modifier=Modifier.weight(1f)) { Text("Simpan PDF") }
-            OutlinedButton(onClick={ vm.export { share(listOf(it)) } },enabled=distributable&&!state.busy,modifier=Modifier.weight(1f)) { Text("Bagikan PDF") }
+            FilterChip(selected=!excel,onClick={ excel=false },label={ Text("PDF") })
+            FilterChip(selected=excel,onClick={ excel=true },label={ Text("Excel") })
         }
-        Text("Excel",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
-        Text("File .xlsx dengan rumus aktif",style=MaterialTheme.typography.bodySmall)
+        val format=if(excel)"Excel" else "PDF"
+        Text(if(excel)"File .xlsx dengan rumus aktif" else if(call!=null)"A4 landscape · 30 baris per halaman" else "A4 portrait",
+            style=MaterialTheme.typography.bodySmall)
+        if(excel) {
+            TextButton(onClick={ vm.export(xlsx=true) { file ->
+                runCatching { ShareFiles.view(context,file) }.onFailure { vm.error("Pasang aplikasi pembuka Excel untuk melihat file .xlsx.") }
+            } },enabled=distributable&&!state.busy) { Text("Buka Excel") }
+        } else {
+            OutlinedButton(onClick={ vm.export(preview=true) },enabled=issues.isEmpty()&&!state.busy,modifier=Modifier.fillMaxWidth()) {
+                Text(if(complete||legacy||independent)"Pratinjau PDF" else "Pratinjau Draf PDF")
+            }
+        }
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick={ vm.export(xlsx=true,onReady=save) },enabled=distributable&&!state.busy,modifier=Modifier.weight(1f)) { Text("Simpan Excel") }
-            OutlinedButton(onClick={ vm.export(xlsx=true) { share(listOf(it)) } },enabled=distributable&&!state.busy,modifier=Modifier.weight(1f)) { Text("Bagikan Excel") }
+            OutlinedButton(onClick={ vm.export(xlsx=excel,onReady=save) },enabled=distributable&&!state.busy,modifier=Modifier.weight(1f)) { Text("Simpan $format") }
+            OutlinedButton(onClick={ vm.export(xlsx=excel) { share(listOf(it)) } },enabled=distributable&&!state.busy,modifier=Modifier.weight(1f)) { Text("Bagikan $format") }
         }
-        TextButton(onClick={ vm.export(xlsx=true) { file->runCatching { ShareFiles.view(context,file) }.onFailure { vm.error("Pasang aplikasi pembuka Excel untuk melihat file .xlsx.") } } },enabled=distributable&&!state.busy) { Text("Buka Excel") }
         if(!complete&&!legacy&&!independent)Text("Selesaikan laporan untuk menyimpan atau membagikan hasil final.",style=MaterialTheme.typography.bodySmall)
-        if(day!=null&&day.attachments.isNotEmpty())OutlinedButton(onClick={ vm.export { file->share(listOf(file)+day.attachments.map(vm.repository::attachment)) } },enabled=distributable&&!state.busy,modifier=Modifier.fillMaxWidth()) { Text("Bagikan PDF + ${day.attachments.size} Bukti") }
+        if(!excel&&day!=null&&day.attachments.isNotEmpty())TextButton(
+            onClick={ vm.export { file->share(listOf(file)+day.attachments.map(vm.repository::attachment)) } },
+            enabled=distributable&&!state.busy
+        ) { Text("Bagikan PDF + ${day.attachments.size} Bukti") }
         if(state.busy)LinearProgressIndicator(Modifier.fillMaxWidth())
     }
-    if(finish)Confirmation("Selesaikan laporan?","Pastikan angka sudah sesuai. Laporan harian yang selesai dapat menjadi sumber stok berikutnya.","Selesaikan",{ finish=false;if(call!=null)vm.completeCall {} else vm.finalizeDay {} },{ finish=false })
+    if(finish)Confirmation("Selesaikan laporan?",if(call!=null)"Pastikan kunjungan dan angka sudah sesuai." else "Pastikan angka sudah sesuai. Laporan harian yang selesai dapat menjadi sumber stok berikutnya.","Selesaikan",{ finish=false;if(call!=null)vm.completeCall {} else vm.finalizeDay {} },{ finish=false })
     if(reopen)Confirmation("Buka kembali laporan?",if(independent) "Laporan akan dibuka sebagai draf untuk diedit." else "Perubahan stok dapat memengaruhi laporan berikutnya. Laporan final terkait akan ditandai untuk diperiksa.","Buka kembali",{ reopen=false;vm.reopen(onEdit) },{ reopen=false })
 }

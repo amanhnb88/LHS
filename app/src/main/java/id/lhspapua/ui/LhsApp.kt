@@ -1,7 +1,6 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 package id.lhspapua.ui
 
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -9,9 +8,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
+import id.lhspapua.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -25,14 +28,38 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-@Composable fun LhsApp(vm:LhsViewModel=viewModel()) {
+@Composable fun LhsApp(vm:LhsViewModel=viewModel(),onExit:()->Unit={}) {
     val state by vm.state.collectAsStateWithLifecycle()
     val context=LocalContext.current;val scope=rememberCoroutineScope();val lifecycle=LocalLifecycleOwner.current
     val dispatcher=LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
-    var pendingFile by remember { mutableStateOf<File?>(null) }
-    var restoreUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var pendingPath by rememberSaveable { mutableStateOf<String?>(null) }
+    var restoreUri by rememberSaveable { mutableStateOf<android.net.Uri?>(null) }
     var settingsSection by rememberSaveable { mutableStateOf("") }
-    var returnToDay by rememberSaveable { mutableStateOf(false) }
+    var settingsOrigin by rememberSaveable { mutableStateOf("home") }
+    var exitDialog by rememberSaveable { mutableStateOf(false) }
+    var exitFailed by rememberSaveable { mutableStateOf(false) }
+    var exitWaiting by remember { mutableStateOf(false) }
+    val pages=rememberSaveableStateHolder()
+    val tab=RootTab.entries.firstOrNull { it.route==state.screen }
+    val imeOpen=WindowInsets.ime.getBottom(LocalDensity.current)>0
+    fun openSettings(section:String="") {
+        settingsOrigin=state.screen
+        settingsSection=section
+        vm.navigate("settings")
+    }
+    fun requestExit(retry:Boolean=false) {
+        if(exitWaiting)return
+        exitWaiting=true
+        scope.launch {
+            if(retry)vm.retrySave()
+            val canExit=vm.readyToExit()
+            exitWaiting=false
+            if(canExit && exitDialog) {
+                exitDialog=false
+                onExit()
+            } else exitFailed=!canExit
+        }
+    }
     val snackbar=remember { SnackbarHostState() }
     DisposableEffect(vm,lifecycle) {
         val observer=LifecycleEventObserver { _,event->if(event==Lifecycle.Event.ON_PAUSE||event==Lifecycle.Event.ON_STOP)vm.flushPending() }
@@ -40,7 +67,8 @@ import java.io.File
     }
     LaunchedEffect(state.error) { state.error?.let { message->snackbar.showSnackbar(message,withDismissAction=true);vm.error(null) } }
     fun write(uri:android.net.Uri?) {
-        val file=pendingFile ?: return
+        val file=pendingPath?.let(::File) ?: return
+        pendingPath=null
         if(uri!=null)scope.launch {
             runCatching { withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri)?.use { out->file.inputStream().use { it.copyTo(out) } } ?: error("Lokasi penyimpanan tidak dapat dibuka.") } }
                 .onSuccess { vm.error("File berhasil disimpan.") }.onFailure { vm.error(it.message ?: "File gagal disimpan.") }
@@ -51,32 +79,85 @@ import java.io.File
     val saveZip=rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { write(it) }
     val restore=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { restoreUri=it }
     val attachment=rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { it?.let(vm::attach) }
-    fun save(file:File) { pendingFile=file;when(file.extension) { "pdf"->savePdf.launch(file.name);"xlsx"->saveXlsx.launch(file.name);else->saveZip.launch(file.name) } }
+    fun save(file:File) { pendingPath=file.absolutePath;when(file.extension) { "pdf"->savePdf.launch(file.name);"xlsx"->saveXlsx.launch(file.name);else->saveZip.launch(file.name) } }
     fun share(files:List<File>) { runCatching { ShareFiles.share(context,files) }.onFailure { vm.error(it.message) } }
     SalesTheme {
         CompositionLocalProvider(LocalFieldFocus provides FieldFocus(state.focusTag,state.focusSerial),LocalInputCommit provides vm::flushPending,LocalInputLocked provides state.busy) {
-            BackHandler(state.screen!="home") {
-                if(state.screen=="settings"&&settingsSection.isNotEmpty())settingsSection=""
-                else if(state.screen=="settings"&&returnToDay) { returnToDay=false;vm.navigate("day") }
-                else vm.navigate("home")
+            KeyboardAwareBack(enabled=state.ready && state.screen!="call" && state.screen!="day") {
+                when {
+                    state.screen=="settings" && settingsSection.isNotEmpty() -> settingsSection=""
+                    state.screen=="settings" -> vm.navigate(settingsOrigin)
+                    state.screen=="home" -> { exitFailed=false;exitDialog=true }
+                    else -> vm.navigate("home")
+                }
             }
-            val title=when(state.screen) { "call","calls"->"Callsheet";"day","days"->"Laporan Harian";"history"->"Riwayat";"settings"->"Pengaturan";else->"LHS Papua" }
-            Scaffold(contentWindowInsets=WindowInsets.safeDrawing,snackbarHost={ SnackbarHost(snackbar) },topBar={ TopAppBar(title={ Text(title,fontWeight=FontWeight.Bold) },navigationIcon={ if(state.screen!="home")TextButton(onClick={ dispatcher?.onBackPressed() }) { Text("Kembali") } }) }) { padding->
-                Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-                    if(!state.ready)CircularProgressIndicator(Modifier.align(Alignment.Center)) else when(state.screen) {
-                        "home"->HomeScreen(state,vm) { settingsSection="";returnToDay=false;vm.navigate("settings") }
-                        "calls","days"->ReportHub(state.screen=="days",state,vm)
-                        "call"->state.call?.let { CallsheetScreen(it,state,vm,::save,::share) }
-                        "day"->state.day?.let { DailyScreen(it,state,vm,::save,::share,{ attachment.launch(arrayOf("image/*","application/pdf")) }) { settingsSection="lanjutan";returnToDay=true;vm.navigate("settings") } }
-                        "history"->HistoryScreen(state,vm)
-                        "settings"->ScrollPage(pageKey=settingsSection) {
-                            SettingsScreen(settingsSection,{ settingsSection=it },state,vm,backup={ vm.backup(::save) },restore={ restore.launch(arrayOf("application/zip","application/octet-stream")) })
-                            if(returnToDay)TextButton(onClick={ returnToDay=false;settingsSection="";vm.navigate("day") }) { Text("Kembali ke laporan") }
-                            SaveStatus(state,vm)
+            val title=tab?.title ?: when(state.screen) {
+                "call" -> "Callsheet"
+                "day" -> "Laporan Harian"
+                "settings" -> "Pengaturan"
+                else -> "LHS Papua"
+            }
+            Scaffold(
+                contentWindowInsets=WindowInsets.safeDrawing,
+                snackbarHost={ SnackbarHost(snackbar) },
+                topBar={
+                    TopAppBar(
+                        title={ Text(title,fontWeight=FontWeight.Bold) },
+                        navigationIcon={
+                            if(tab==null || tab!=RootTab.HOME)IconButton(onClick={ dispatcher?.onBackPressed() }) {
+                                Icon(painterResource(R.drawable.nav_back),"Kembali")
+                            }
+                        },
+                        actions={
+                            if(tab!=null)IconButton(onClick={ openSettings() }) {
+                                Icon(painterResource(R.drawable.nav_settings),"Pengaturan")
+                            }
+                        }
+                    )
+                },
+                bottomBar={ if(tab!=null && !imeOpen)RootNavigation(state.root,vm::navigate) }
+            ) { padding ->
+                Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
+                    if(!state.ready)CircularProgressIndicator(Modifier.align(Alignment.Center))
+                    else {
+                        val page=when(state.screen) {
+                            "call" -> "call-${state.call?.id}"
+                            "day" -> "day-${state.day?.id}"
+                            else -> state.screen
+                        }
+                        pages.SaveableStateProvider(page) {
+                            when(state.screen) {
+                                "home" -> HomeScreen(state,vm)
+                                "calls","days" -> ReportHub(state.screen=="days",state,vm)
+                                "call" -> state.call?.let { CallsheetScreen(it,state,vm,::save,::share) }
+                                "day" -> state.day?.let {
+                                    DailyScreen(it,state,vm,::save,::share,{ attachment.launch(arrayOf("image/*","application/pdf")) }) {
+                                        openSettings("lanjutan")
+                                    }
+                                }
+                                "history" -> HistoryScreen(state,vm)
+                                "settings" -> ScrollPage(pageKey=settingsSection) {
+                                    SettingsScreen(settingsSection,{ settingsSection=it },state,vm,backup={ vm.backup(::save) },restore={ restore.launch(arrayOf("application/zip","application/octet-stream")) })
+                                    SaveStatus(state,vm)
+                                }
+                            }
                         }
                     }
                 }
             }
+            if(exitDialog)AlertDialog(
+                onDismissRequest={ if(!exitWaiting)exitDialog=false },
+                title={ Text("Keluar dari LHS Papua?") },
+                text={
+                    Text(when {
+                        exitWaiting -> "Menunggu penyimpanan selesai…"
+                        exitFailed -> "Penyimpanan gagal. Coba lagi atau tetap di aplikasi untuk memeriksa data."
+                        else -> "Apakah Anda yakin ingin keluar dari aplikasi? Data yang sudah disimpan akan tetap tersedia saat aplikasi dibuka kembali."
+                    })
+                },
+                dismissButton={ TextButton(onClick={ exitDialog=false },enabled=!exitWaiting) { Text("Batal") } },
+                confirmButton={ TextButton(onClick={ requestExit(exitFailed) },enabled=!exitWaiting) { Text(if(exitFailed)"Coba Lagi" else "Keluar") } }
+            )
             state.notice?.let { Confirmation("Periksa laporan terkait",it,"Mengerti",vm::dismissNotice,vm::dismissNotice) }
             restoreUri?.let { uri->Confirmation("Pulihkan backup?","Laporan dengan ID yang sama diganti dari backup. Simpan backup saat ini jika ingin mempertahankan salinannya.","Pulihkan",{ vm.restore(uri);restoreUri=null },{ restoreUri=null }) }
             state.preview?.let { DocumentPreview(it) { vm.preview(null) } }

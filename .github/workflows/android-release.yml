@@ -16,7 +16,7 @@ jobs:
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
-       github.event.before == '2af4c8135f97df57622dd720372c3715179e8c50')
+       github.event.before == 'a73f298c38ad841149911b684fc4ec1c7b8710ad')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -55,7 +55,7 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: LHS-Papua-1.2.2-signed
+          name: LHS-Papua-1.2.3-signed
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30

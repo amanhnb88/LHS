@@ -68,7 +68,7 @@ class UiSmokeTest {
     private fun snapshot(name:String) {
         compose.runOnIdle { val view=compose.activity.window.decorView;val b=android.graphics.Bitmap.createBitmap(view.width,view.height,android.graphics.Bitmap.Config.ARGB_8888);view.draw(android.graphics.Canvas(b));val f=java.io.File("build/verification/$name.png");f.parentFile!!.mkdirs();f.outputStream().use { b.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) };b.recycle() }
     }
-    private fun newCall() { click("CALLSHEET");click("Buat Laporan Baru");if(vm.state.value.call!!.identity.sales.isNotBlank())click("Ubah tanggal / identitas");text("Nama Sales","Sales Lapangan");click("Gunakan Identitas");saved() }
+    private fun newCall() { compose.onNodeWithTag("tab-calls").performClick();click("Buat Laporan Baru");if(vm.state.value.call!!.identity.sales.isNotBlank())click("Ubah tanggal / identitas");text("Nama Sales","Sales Lapangan");click("Gunakan Identitas");saved() }
     @Test fun masterOutletIsFoundDirectlyAndDraftResumesWithoutDuplicates() {
         vm.settings { it.copy(outlets=listOf(SavedOutlet("Toko Aimas","Jalan Aimas"))) };saved()
         newCall();val id=vm.state.value.call!!.id
@@ -82,8 +82,8 @@ class UiSmokeTest {
         // Finish the list recomposition before sending the real Android Back event.
         // Otherwise Back can still invoke the previous outlet editor callback.
         compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
-        awaitState("Android Back returns to home") { vm.state.value.screen=="home" }
-        click("CALLSHEET")
+        awaitState("Android Back returns to Callsheet hub") { vm.state.value.screen=="calls" }
+        compose.onNodeWithTag("tab-calls").assertIsSelected()
         saved();assertEquals(count,vm.state.value.calls.size)
         compose.onAllNodesWithText("Lanjutkan").onFirst().performClick();assertEquals(id,vm.state.value.call!!.id)
         compose.onNodeWithText("1. Toko Aimas").performScrollTo().assertExists()
@@ -110,7 +110,7 @@ class UiSmokeTest {
         saved();assertEquals(9,vm.state.value.call!!.activeOutlets().size)
     }
     @Test fun dailyManualInputsStayIndependentAndExportAsDraft() {
-        click("LAPORAN HARIAN");click("Buat Laporan Baru");saved()
+        compose.onNodeWithTag("tab-days").performClick();click("Buat Laporan Baru");saved()
         val quantities = listOf(10 to 20,20 to 50,10 to 10)
         quantities.forEachIndexed { p,(gross,retail) ->
             if(p>0) click(Product.entries[p].label)
@@ -142,6 +142,7 @@ class UiSmokeTest {
         compose.onNodeWithText("Total Penjualan: Rp 1.860.000").performScrollTo().assertExists()
         compose.onNodeWithText("Saldo Akhir: Rp 12.345").assertExists()
         compose.onNodeWithText("Simpan PDF").performScrollTo().assertIsEnabled()
+        click("Excel")
         compose.onNodeWithText("Simpan Excel").performScrollTo().assertIsEnabled()
         compose.runOnIdle { vm.export() };saved()
         compose.runOnIdle { vm.export(xlsx=true) };saved()
@@ -173,7 +174,38 @@ class UiSmokeTest {
             androidx.core.view.ViewCompat.dispatchApplyWindowInsets(compose.activity.findViewById(android.R.id.content),insets)
         }
         text("call-2-sold","3");compose.onNodeWithTag("call-2-sold").assertIsDisplayed()
-        compose.onNodeWithText("Simpan & Tambah Outlet").assertIsDisplayed()
+        compose.onNodeWithText("Simpan & Tambah Outlet").assertDoesNotExist()
         snapshot("STAGE3_FONT_130_IME")
     }
+    @Test fun exitStaysOpenWhenAutosaveFailsAndRetryKeepsTheDraft() {
+        var exitRequested=false
+        compose.runOnIdle {
+            compose.activity.setContent { LhsApp(vm,onExit={ exitRequested=true }) }
+            vm.newCall()
+            vm.call { it.copy(outlets=listOf(Outlet(quantities=listOf(Quantity(sold=-1),Quantity(),Quantity())))) }
+            vm.navigate("home")
+        }
+        awaitState("Invalid data rejected by Room write") { vm.state.value.pending==0 && vm.state.value.saveFailed }
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        click("Keluar")
+        compose.waitUntil(15000) { compose.onAllNodesWithText("Coba Lagi").fetchSemanticsNodes().isNotEmpty() }
+        assertFalse(exitRequested)
+        compose.onNodeWithText("Keluar dari LHS Papua?").assertExists()
+        click("Coba Lagi")
+        compose.waitUntil(15000) { compose.onAllNodesWithText("Coba Lagi").fetchSemanticsNodes().isNotEmpty() }
+        assertFalse(exitRequested)
+        click("Batal")
+        compose.onNodeWithTag("tab-home").assertIsSelected()
+        val id=vm.state.value.call!!.id
+        compose.runOnIdle {
+            vm.call { it.copy(outlets=listOf(Outlet(name="Pulih",quantities=listOf(Quantity(sold=20),Quantity(),Quantity())))) }
+            vm.retrySave()
+        }
+        awaitState("Corrected draft persists") { vm.state.value.pending==0 && !vm.state.value.saveFailed }
+        compose.runOnIdle { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        click("Keluar")
+        awaitState("Exit callback after durable save") { exitRequested }
+        assertEquals(20L,runBlocking { vm.repository.call(id) }?.outlets?.single()?.quantities?.first()?.sold)
+    }
+
 }

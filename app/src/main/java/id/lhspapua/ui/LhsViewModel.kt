@@ -3,6 +3,7 @@ package id.lhspapua.ui
 import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import id.lhspapua.data.Repository
 import id.lhspapua.data.WriteBuffer
@@ -17,25 +18,32 @@ import java.time.LocalDate
 import java.util.Locale
 
 data class UiState(
-    val ready:Boolean=false,val screen:String="home",val calls:List<CallReport> = emptyList(),val days:List<DailyReport> = emptyList(),
+    val ready:Boolean=false,val screen:String="home",val root:String="home",val calls:List<CallReport> = emptyList(),val days:List<DailyReport> = emptyList(),
     val call:CallReport?=null,val day:DailyReport?=null,val settings:Settings=Settings(),val saved:String="Tersimpan",
     val pending:Int=0,val error:String?=null,val busy:Boolean=false,val pdf:File?=null,val xlsx:File?=null,val preview:File?=null,
     val notice:String?=null,val saveFailed:Boolean=false,
     val focusTag:String="",val focusSerial:Long=0,val lastId:String?=null,val lastType:String?=null)
 
-class LhsViewModel(app:Application):AndroidViewModel(app) {
+class LhsViewModel(app:Application,private val navigation:SavedStateHandle=SavedStateHandle()):AndroidViewModel(app) {
     val repository=Repository(app)
     private val mutable=MutableStateFlow(UiState())
     val state=mutable.asStateFlow()
     private val jobs=Channel<suspend ()->Unit>(Channel.UNLIMITED)
     private var dayTicket=0L
-    private var callTicket=0L
     private val prefs=app.getSharedPreferences("navigation",0)
     private val journal=app.getSharedPreferences("draft-journal",0)
+    private val journalLock=Any()
     private data class Write(val payload:String,val action:suspend ()->Unit)
     private val writes=WriteBuffer<Write>()
     var durableWrites:Int=0; private set
+    private fun clearJournalEntry(key:String,payload:String) = synchronized(journalLock) {
+        if(journal.getString(key,null)==payload) {
+            check(journal.edit().remove(key).commit()) { "Catatan draf belum dapat diperbarui." }
+        }
+    }
+
     private suspend fun recoverDrafts() {
+        if(journal.contains("flush-time"))check(journal.edit().remove("flush-time").commit())
         val saved=journal.all.mapNotNull { (key,value)->(value as? String)?.let { key to it } }.sortedBy { if(it.first=="settings")0 else 1 }
         for((key,payload) in saved) {
             when {
@@ -44,37 +52,60 @@ class LhsViewModel(app:Application):AndroidViewModel(app) {
                 key.startsWith("day:")->repository.save(repository.json.decodeFromString<DailyReport>(payload))
                 else->kotlin.error("Catatan draf tidak dikenal.")
             }
-            check(journal.edit().remove(key).commit()) { "Pemulihan draf belum dapat diselesaikan." }
+            clearJournalEntry(key,payload)
         }
     }
     private fun queueWrite(key:String,payload:String,action:suspend ()->Unit) {
-        journal.edit().putString(key,payload).apply()
-        mutable.update { it.copy(saved="Menyimpan…",saveFailed=false) }
+        synchronized(journalLock) { journal.edit().putString(key,payload).apply() }
+        mutable.update { it.copy(saved="Menyimpan…") }
         if(writes.replace(key,Write(payload,action))) enqueue(dataWrite=true) {
             delay(180)
             val latest=writes.take(key) ?: return@enqueue
             latest.action();durableWrites++
             // Do not erase a newer edit which arrived while this transaction was in progress.
-            if(journal.getString(key,null)==latest.payload) check(journal.edit().remove(key).commit()) { "Catatan simpan belum dapat diperbarui." }
+            clearJournalEntry(key,latest.payload)
         }
     }
     fun focus(tag:String) { mutable.update { it.copy(focusTag=tag,focusSerial=it.focusSerial+1) } }
-    fun flushPending() { enqueue { journal.edit().putLong("flush-time",System.currentTimeMillis()).commit();journal.edit().remove("flush-time").commit() } }
+    fun flushPending() {
+        enqueue(dataWrite=true) {
+            // A synchronous commit waits for the journal's asynchronous applies.
+            check(journal.edit().commit()) { "Catatan draf belum dapat disimpan." }
+        }
+    }
+
+    suspend fun readyToExit():Boolean {
+        flushPending()
+        val drained=state.first { it.pending==0 }
+        return !drained.saveFailed && !drained.busy && journal.all.isEmpty()
+    }
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
             for(job in jobs) {
                 try { job() } catch(e:CancellationException) { throw e }
                 catch(e:Exception) { mutable.update { it.copy(error=e.message ?: "Pekerjaan gagal. Coba lagi.") } }
-                finally { mutable.update { val n=(it.pending-1).coerceAtLeast(0); it.copy(pending=n,saved=if(it.saveFailed) "Gagal menyimpan" else if(n==0) "Tersimpan" else "Menyimpan…") } }
+                finally { mutable.update { val n=(it.pending-1).coerceAtLeast(0)
+                    val failed=it.saveFailed || (n==0 && journal.all.isNotEmpty())
+                    it.copy(pending=n,saveFailed=failed,saved=if(failed) "Gagal menyimpan" else if(n==0) "Tersimpan" else "Menyimpan…") } }
             }
         }
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) { recoverDrafts() }
                 val settings=repository.settings()
-                mutable.update { it.copy(settings=settings,ready=true,lastId=prefs.getString("id",null),lastType=prefs.getString("type",null)) }
-            }.onFailure { error(it.message ?: "Penyimpanan tidak dapat dibuka."); mutable.update { it.copy(ready=true) } }
+                val call=navigation.get<String>("callId")?.let { repository.call(it) }
+                val day=navigation.get<String>("dayId")?.let { repository.daily(it) }
+                val root=navigation.get<String>("root")?.takeIf { it in RootTab.routes } ?: "home"
+                val screen=when(val saved=navigation.get<String>("screen")) {
+                    "call" -> if(call!=null) saved else root
+                    "day" -> if(day!=null) saved else root
+                    "settings" -> saved
+                    else -> root
+                }
+                mutable.update { it.copy(settings=settings,ready=true,screen=screen,root=root,call=call,day=day,
+                    lastId=prefs.getString("id",null),lastType=prefs.getString("type",null)) }
+            }.onFailure { error(it.message ?: "Penyimpanan tidak dapat dibuka."); mutable.update { it.copy(ready=true,saveFailed=true,saved="Gagal menyimpan") } }
         }
         viewModelScope.launch { repository.calls.collect { rows -> mutable.update { it.copy(calls=rows) } } }
         viewModelScope.launch { repository.daily.collect { rows -> mutable.update { it.copy(days=rows) } } }
@@ -95,9 +126,14 @@ class LhsViewModel(app:Application):AndroidViewModel(app) {
     fun error(message:String?) { mutable.update { it.copy(error=message) } }
     fun dismissNotice() { mutable.update { it.copy(notice=null) } }
     fun navigate(screen:String) {
-        mutable.update { it.copy(screen=screen,error=null) }
+        val root=screen.takeIf { it in RootTab.routes } ?: state.value.root
+        navigation["screen"]=screen
+        navigation["root"]=root
+        mutable.update { it.copy(screen=screen,root=root,error=null) }
         flushPending()
     }
+    fun backToRoot() = navigate(state.value.root)
+
     fun newCall() { val r=CallReport(identity=state.value.settings.profile.copy(date=LocalDate.now().toString()));open(r);saveCall(r) }
     fun newDay() {
         val s=state.value.settings
@@ -107,11 +143,15 @@ class LhsViewModel(app:Application):AndroidViewModel(app) {
     }
     fun open(r:CallReport) {
         prefs.edit().putString("id",r.id).putString("type","call").apply()
-        mutable.update { it.copy(call=r,screen="call",pdf=null,xlsx=null,lastId=r.id,lastType="call",focusTag="") }
+        navigation["screen"]="call"
+        navigation["callId"]=r.id
+        mutable.update { it.copy(call=it.call?.takeIf { current->current.id==r.id && journal.contains("call:${r.id}") } ?: r,screen="call",pdf=null,xlsx=null,lastId=r.id,lastType="call",focusTag="") }
     }
     fun open(r:DailyReport) {
         prefs.edit().putString("id",r.id).putString("type","day").apply()
-        mutable.update { it.copy(day=r,screen="day",pdf=null,xlsx=null,lastId=r.id,lastType="day",focusTag="") }
+        navigation["screen"]="day"
+        navigation["dayId"]=r.id
+        mutable.update { it.copy(day=it.day?.takeIf { current->current.id==r.id && journal.contains("day:${r.id}") } ?: r,screen="day",pdf=null,xlsx=null,lastId=r.id,lastType="day",focusTag="") }
     }
     fun call(change:(CallReport)->CallReport) {
         val r=change(state.value.call ?: return).copy(completed=false)
@@ -124,8 +164,7 @@ class LhsViewModel(app:Application):AndroidViewModel(app) {
         mutable.update { it.copy(day=r,pdf=null,xlsx=null) };saveDay(r)
     }
     private fun saveCall(r:CallReport) {
-        val ticket=++callTicket
-        queueWrite("call:${r.id}",repository.json.encodeToString(r)) { repository.save(r);if(ticket==callTicket)mutable.update { it.copy(saveFailed=false) } }
+        queueWrite("call:${r.id}",repository.json.encodeToString(r)) { repository.save(r) }
     }
     private fun saveDay(r:DailyReport) {
         val ticket=++dayTicket
@@ -137,7 +176,16 @@ class LhsViewModel(app:Application):AndroidViewModel(app) {
             }
         }
     }
-    fun retrySave() { when(state.value.screen) { "call"->state.value.call?.let(::saveCall); "day"->state.value.day?.let(::saveDay);else->settings { it } } }
+    fun retrySave() {
+        if(state.value.busy)return
+        mutable.update { it.copy(busy=true) }
+        enqueue(dataWrite=true) {
+            try {
+                recoverDrafts()
+                mutable.update { it.copy(saveFailed=false) }
+            } finally { mutable.update { it.copy(busy=false) } }
+        }
+    }
     fun settings(change:(Settings)->Settings) {
         val s=change(state.value.settings);mutable.update { it.copy(settings=s) };queueWrite("settings",repository.json.encodeToString(s)) { repository.save(s) }
     }
@@ -267,6 +315,6 @@ class LhsViewModel(app:Application):AndroidViewModel(app) {
     }
     fun preview(file:File?) { mutable.update { it.copy(preview=file) } }
     fun backup(onReady:(File)->Unit) { enqueue { val file=File(getApplication<Application>().cacheDir,"exports/LHS_BACKUP_${LocalDate.now()}.zip");file.parentFile!!.mkdirs();repository.backup(file);withContext(Dispatchers.Main) { onReady(file) } } }
-    fun restore(uri:Uri) { enqueue { repository.restore(uri);val s=repository.settings();mutable.update { it.copy(settings=s,call=null,day=null,screen="history",notice="Backup dipulihkan. Laporan lama dan lampirannya tetap tersedia.") };prefs.edit().clear().apply() } }
+    fun restore(uri:Uri) { enqueue { repository.restore(uri);val s=repository.settings();mutable.update { it.copy(settings=s,call=null,day=null,notice="Backup dipulihkan. Laporan lama dan lampirannya tetap tersedia.") };prefs.edit().clear().apply();withContext(Dispatchers.Main) { navigate("history") } } }
     fun cleanup() { enqueue { val n=repository.cleanup();mutable.update { it.copy(notice="$n lampiran yang tidak terpakai dihapus") } } }
 }

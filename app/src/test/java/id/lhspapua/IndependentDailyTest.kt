@@ -156,4 +156,33 @@ class IndependentDailyTest {
         assertEquals(85L,oldNext.products[0].opening)
         assertEquals(60L,Calculation.stockTg(oldNext,0))
     }
+    @Test fun recordingRetailExampleMatchesAcrossCalculationPdfAndExcel() {
+        val initial=newDaily(Identity())
+        val report=initial.copy(products=initial.products.mapIndexed { index,stock ->
+            if(index==0)stock else stock.copy(sales=stock.sales.mapIndexed { tier,sale ->
+                if(tier==Tier.RTL.ordinal)sale.copy(quantity=900) else sale
+            })
+        })
+        assertEquals(13950000L,Calculation.productTotal(report.products[1]))
+        assertEquals(16200000L,Calculation.productTotal(report.products[2]))
+        assertEquals(30150000L,Calculation.total(report))
+        val sheets=Layout.dailyWorkbook(report)
+        val pdf=ByteArrayOutputStream().also { PdfExport.write(sheets,it) }.toByteArray()
+        PDDocument.load(pdf).use { doc ->
+            val text=PDFTextStripper().getText(doc)
+            listOf("13.950.000","16.200.000","30.150.000").forEach { assertTrue(text.contains(it)) }
+        }
+        val excel=workbook(sheets)
+        XSSFWorkbook(excel.inputStream()).use { book ->
+            val sheet=book.getSheetAt(0)
+            val evaluator=book.creationHelper.createFormulaEvaluator()
+            for((row,col,expected) in listOf(Triple(18,20,13950000.0),Triple(26,20,16200000.0),Triple(39,5,30150000.0))) {
+                assertEquals(expected,evaluator.evaluate(sheet.getRow(row).getCell(col)).numberValue,0.0)
+            }
+        }
+        val output=File("build/verification").apply { mkdirs() }
+        File(output,"LHS_3_3.pdf").writeBytes(pdf)
+        File(output,"LHS_3_3.xlsx").writeBytes(excel)
+    }
+
 }

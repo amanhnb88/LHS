@@ -1,6 +1,6 @@
 package id.lhspapua.ui
 
-import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,6 +19,7 @@ import java.io.File
     var query by rememberSaveable(r.id) { mutableStateOf("") }
     var identity by rememberSaveable(r.id) { mutableStateOf(r.identity.sales.isBlank()) }
     LaunchedEffect(selected) { vm.rememberOutlet(r.id,selected) }
+    val listScroll=rememberScrollState()
     val outlet=r.outlets.find { it.id==selected }
     val directory=OutletSearch.matches(query,state.settings,state.calls.filterNot { it.id==r.id })
     fun add(saved:SavedOutlet?=null) {
@@ -29,17 +30,17 @@ import java.io.File
         vm.call { it.copy(outlets=if(blank==null)it.outlets+chosen else it.outlets.map { o->if(o.id==blank.id)chosen else o }) }
         selected=chosen.id;editing=false;query=""
     }
-    fun list() { selected=null;query="" }
+    fun list() { selected=null;query="";vm.flushPending() }
     fun saveOutlet() {
         val current=vm.state.value.call?.outlets?.find { it.id==selected } ?: return
         vm.saveOutlet(current)
-        if(editing)list() else add()
+        if(editing)list() else { add();vm.flushPending() }
     }
-    BackHandler { when { outlet!=null->list();review->review=false;else->vm.navigate("home") } }
+    KeyboardAwareBack { if(state.busy)return@KeyboardAwareBack;when { review->review=false;outlet!=null->list();else->vm.backToRoot() } }
     if(review) {
         ReportReview(state,vm,save,share,call=r,onEdit={ vm.call { it };review=false },onIssue={ tag->review=false;selected=tag.outletId;editing=true;vm.focus(tag.field) })
     } else FlowFrame(pageKey="call-${r.id}-${selected ?: "list"}",state=state,vm=vm,
-        primary=if(outlet==null)"Tambah Outlet" else if(editing)"Simpan Perubahan" else "Simpan & Tambah Outlet",
+        scroll=if(outlet==null)listScroll else null,primary=if(outlet==null)"Tambah Outlet" else if(editing)"Simpan Perubahan" else "Simpan & Tambah Outlet",
         onPrimary={ if(outlet==null)add() else saveOutlet() },secondary=if(outlet!=null)"Daftar Kunjungan" else "Periksa Laporan",onSecondary={ if(outlet!=null)list() else { review=true;vm.flushPending() } }) {
         if(outlet==null) {
             ReportIdentity(r.identity,identity,{ identity=it },{ i->vm.call { it.copy(identity=i) } }) {
@@ -71,7 +72,7 @@ import java.io.File
             Product.entries.forEachIndexed { p,product->
                 val q=outlet.quantities[p]
                 Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                    Text(product.label,Modifier.weight(1.5f),style=MaterialTheme.typography.labelLarge)
+                    Text(product.label,Modifier.weight(1.5f),style=MaterialTheme.typography.labelLarge,softWrap=true)
                     Numeric("Stok ${product.label}",q.stock,modifier=Modifier.weight(1f),compact=true,tag="call-$p-stock") { n->vm.call { report->report.copy(outlets=report.outlets.map { o->if(o.id==outlet.id)o.copy(quantities=o.quantities.replace(p,o.quantities[p].copy(stock=n))) else o }) } }
                     Numeric("Jual ${product.label}",q.sold,modifier=Modifier.weight(1f),compact=true,tag="call-$p-sold",done=p==2) { n->vm.call { report->report.copy(outlets=report.outlets.map { o->if(o.id==outlet.id)o.copy(quantities=o.quantities.replace(p,o.quantities[p].copy(sold=n))) else o }) } }
                 }

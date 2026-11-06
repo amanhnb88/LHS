@@ -1,6 +1,6 @@
 package id.lhspapua.ui
 
-import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,6 +14,11 @@ import java.io.File
 
 @Composable internal fun DailyScreen(r:DailyReport,state:UiState,vm:LhsViewModel,save:(File)->Unit,share:(List<File>)->Unit,attach:()->Unit,advanced:()->Unit) {
     var section by rememberSaveable(r.id) { mutableIntStateOf(if(r.status==ReportStatus.FINAL||r.formatVersion<2)3 else vm.rememberedSection(r.id).coerceIn(0,3)) }
+    var trail by rememberSaveable(r.id) { mutableStateOf(if(section in 1..2)intArrayOf(0) else intArrayOf()) }
+    var reviewFrom by rememberSaveable(r.id) { mutableIntStateOf(0) }
+    val stockScroll=rememberScrollState()
+    val testerScroll=rememberScrollState()
+    val financeScroll=rememberScrollState()
     var product by rememberSaveable(r.id) { mutableIntStateOf(if(r.independent) 0 else -1) }
     var identity by rememberSaveable(r.id) { mutableStateOf(!r.independent && r.identity.sales.isBlank()) }
     var correction by remember { mutableStateOf(false) }
@@ -26,10 +31,43 @@ import java.io.File
         if(issue.field=="Nama Sales"||issue.field=="identity")identity=true
         if(issue.field=="rules")advanced() else vm.focus(issue.field)
     }
-    BackHandler { if(section==3&&r.status==ReportStatus.DRAFT&&r.formatVersion>=2)section=0 else vm.navigate("home") }
+    KeyboardAwareBack {
+        if(state.busy)return@KeyboardAwareBack
+        when {
+            section==3 && r.status==ReportStatus.DRAFT && r.formatVersion>=2 -> section=reviewFrom
+            trail.isNotEmpty() && r.status==ReportStatus.DRAFT && r.formatVersion>=2 -> {
+                section=trail.last()
+                trail=trail.copyOf(trail.size-1)
+            }
+            else -> vm.backToRoot()
+        }
+        vm.flushPending()
+    }
     if(section==3||r.status==ReportStatus.FINAL||r.formatVersion<2) {
-        ReportReview(state,vm,save,share,day=r,onEdit={ section=0 },onIssue=::route,onLegacy={ legacy=true })
-    } else FlowFrame(pageKey="day-${r.id}-$section",state=state,vm=vm,primary="Periksa Laporan",onPrimary={ section=3;vm.flushPending() }) {
+        ReportReview(state,vm,save,share,day=r,onEdit={ section=reviewFrom },onIssue=::route,onLegacy={ legacy=true })
+    } else FlowFrame(
+        pageKey="day-${r.id}-$section",state=state,vm=vm,primary="Periksa Laporan",
+        onPrimary={ reviewFrom=section;section=3;vm.flushPending() },
+        scroll=when(section) { 0 -> stockScroll;1 -> testerScroll;else -> financeScroll },
+        header={
+            Column(Modifier.fillMaxWidth().padding(horizontal=16.dp)) {
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                    listOf(if(r.independent)"Stok & Penjualan" else "Barang","Tester","Keuangan").forEachIndexed { i,title ->
+                        FilterChip(selected=section==i,onClick={
+                            if(section!=i) {
+                                val prior=trail.indexOf(i)
+                                trail=if(prior>=0)trail.copyOf(prior) else trail+section
+                                section=i
+                                vm.flushPending()
+                            }
+                        },label={ Text(title,style=MaterialTheme.typography.labelMedium) },
+                            modifier=Modifier.weight(if(i==0 && r.independent) 1.6f else 1f))
+                    }
+                }
+                if(r.independent && section==0)ProductTabs(product) { product=it;vm.flushPending() }
+            }
+        }
+    ) {
         ReportIdentity(r.identity,identity,{ identity=it },vm::updateIdentity) {
             if(r.independent) identity=false
             else if(r.identity.sales.isBlank()) vm.focus("Nama Sales")
@@ -38,9 +76,6 @@ import java.io.File
         if(identity && r.usesLedger) {
             val sameDate=state.days.filter { it.id!=r.id&&it.identity.date==r.identity.date&&it.identity.stockOwnerId==r.identity.stockOwnerId&&r.identity.stockOwnerId.isNotBlank() }
             if(sameDate.isNotEmpty())TextButton(onClick={ sequenceDialog=true }) { Text("Laporan lain pada tanggal ini") }
-        }
-        Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-            listOf(if(r.independent) "Stok & Penjualan" else "Barang","Tester","Keuangan").forEachIndexed { i,title->FilterChip(selected=section==i,onClick={ section=i;vm.flushPending() },label={ Text(title,style=MaterialTheme.typography.labelLarge) },modifier=Modifier.weight(if(i==0 && r.independent) 1.6f else 1f)) }
         }
         if(state.busy)LinearProgressIndicator(Modifier.fillMaxWidth())
         when(section) {
@@ -51,21 +86,23 @@ import java.io.File
                     else if(source!=null)Text("Stok awal dari ${source.identity.displayDate()}",style=MaterialTheme.typography.bodySmall)
                     if(source!=null&&r.openingMode==OpeningMode.AUTO)TextButton(onClick={ correction=true }) { Text("Sesuaikan Stok Awal") }
                 }
-                Product.entries.forEachIndexed { p,name->
-                    val s=r.products[p];val ownIssues=issues.filter { it.section==0&&it.product==p }
-                    Surface(onClick={ product=if(product==p)-1 else p },modifier=Modifier.fillMaxWidth(),color=if(product==p)MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,shape=MaterialTheme.shapes.small) {
+                if(r.independent) {
+                    val p=product.coerceIn(Product.entries.indices)
+                    IndependentProductEditor(r.products[p],p,vm)
+                } else Product.entries.forEachIndexed { p,name ->
+                    val stock=r.products[p]
+                    val ownIssues=issues.filter { it.section==0 && it.product==p }
+                    Surface(onClick={ product=if(product==p)-1 else p },modifier=Modifier.fillMaxWidth(),
+                        color=if(product==p)MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                        shape=MaterialTheme.shapes.small) {
                         Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
                             Text(name.label,style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
-                            if(r.independent) {
-                                Text("Total: ${Calculation.safeMoney(empty="—") { Calculation.productTotal(s) }}",style=MaterialTheme.typography.bodySmall)
-                            } else Text("${if(ownIssues.isEmpty())"Lengkap" else "Perlu diisi"} · Terjual ${runCatching { Calculation.number(Calculation.sold(s)) }.getOrDefault("—")} · Sisa ${runCatching { Calculation.number(Calculation.tg(s,r.rules)) }.getOrDefault("—")}",style=MaterialTheme.typography.bodySmall)
+                            Text("${if(ownIssues.isEmpty())"Lengkap" else "Perlu diisi"} · Terjual ${runCatching { Calculation.number(Calculation.sold(stock)) }.getOrDefault("—")} · Sisa ${runCatching { Calculation.number(Calculation.tg(stock,r.rules)) }.getOrDefault("—")}",
+                                style=MaterialTheme.typography.bodySmall)
                             Text(if(product==p)"Tutup" else "Isi Stok & Penjualan",color=MaterialTheme.colorScheme.primary,style=MaterialTheme.typography.labelMedium)
                         }
                     }
-                    if(product==p) {
-                        if(r.independent) IndependentProductEditor(s,p,vm)
-                        else ProductEditor(r,p,state,vm)
-                    }
+                    if(product==p)ProductEditor(r,p,state,vm)
                 }
                 TotalLine("Total Penjualan",Calculation.safeMoney(empty="—") { Calculation.total(r) })
             }
@@ -104,7 +141,7 @@ import java.io.File
     }
     Panel("Stok") {
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            Numeric("DO",stock.delivery,modifier=Modifier.weight(1f),tag="stock-$product-do") { n ->
+            Numeric("Barang Masuk (DO)",stock.delivery,modifier=Modifier.weight(1f),tag="stock-$product-do") { n ->
                 update { it.copy(delivery=n) }
             }
             Numeric("Jual",stock.manualSold,modifier=Modifier.weight(1f),tag="stock-$product-sold") { n ->
@@ -112,13 +149,13 @@ import java.io.File
             }
         }
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-            Numeric("Sample",stock.sample,modifier=Modifier.weight(1f),tag="stock-$product-sample") { n ->
+            Numeric("Sampel",stock.sample,modifier=Modifier.weight(1f),tag="stock-$product-sample") { n ->
                 update { it.copy(sample=n) }
             }
-            Numeric("Bns",stock.bonus,modifier=Modifier.weight(1f),tag="stock-$product-bonus") { n ->
+            Numeric("Bonus",stock.bonus,modifier=Modifier.weight(1f),tag="stock-$product-bonus") { n ->
                 update { it.copy(bonus=n) }
             }
-            Numeric("TG",stock.manualTg,modifier=Modifier.weight(1f),tag="stock-$product-tg") { n ->
+            Numeric("Sisa (TG)",stock.manualTg,modifier=Modifier.weight(1f),tag="stock-$product-tg") { n ->
                 update { it.copy(manualTg=n) }
             }
         }

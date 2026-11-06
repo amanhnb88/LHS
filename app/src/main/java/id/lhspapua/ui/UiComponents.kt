@@ -2,6 +2,8 @@
 package id.lhspapua.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.relocation.BringIntoViewRequester
@@ -43,23 +45,39 @@ internal val LocalInputLocked=staticCompositionLocalOf { false }
 internal val LocalInputCommit=staticCompositionLocalOf<()->Unit> { {} }
 
 @Composable internal fun SalesTheme(content:@Composable ()->Unit) {
-    MaterialTheme(colorScheme=lightColorScheme(primary=Color(0xFF00695C),onPrimary=Color.White,primaryContainer=Color(0xFFE1F0EA),
-        secondary=Color(0xFF486459),background=Color(0xFFF7F9F8),surface=Color.White,onSurface=Color(0xFF193A32),onBackground=Color(0xFF193A32)),content=content)
+    val colors=if(isSystemInDarkTheme()) darkColorScheme(
+        primary=Color(0xFF86D7C5),onPrimary=Color(0xFF00382F),primaryContainer=Color(0xFF174C41),
+        onPrimaryContainer=Color(0xFFC2F4E8),background=Color(0xFF101815),surface=Color(0xFF16211D),
+        surfaceVariant=Color(0xFF273731),onSurfaceVariant=Color(0xFFBCCDC6)
+    ) else lightColorScheme(
+        primary=Color(0xFF00695C),onPrimary=Color.White,primaryContainer=Color(0xFFE1F0EA),
+        secondary=Color(0xFF486459),background=Color(0xFFF7F9F8),surface=Color.White,
+        onSurface=Color(0xFF193A32),onBackground=Color(0xFF193A32)
+    )
+    MaterialTheme(colorScheme=colors,content=content)
 }
 @Composable internal fun ScrollPage(pageKey:Any=Unit,content:@Composable ColumnScope.()->Unit) {
     key(pageKey) { Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) { content();Spacer(Modifier.height(16.dp)) } }
 }
-@Composable internal fun FlowFrame(pageKey:Any,state:UiState,vm:LhsViewModel,primary:String,onPrimary:()->Unit,secondary:String?=null,onSecondary:()->Unit={},enabled:Boolean=true,content:@Composable ColumnScope.()->Unit) {
+@Composable internal fun FlowFrame(
+    pageKey:Any,state:UiState,vm:LhsViewModel,primary:String,onPrimary:()->Unit,
+    secondary:String?=null,onSecondary:()->Unit={},enabled:Boolean=true,scroll:ScrollState?=null,
+    header:@Composable ()->Unit={},content:@Composable ColumnScope.()->Unit
+) {
     val focus=LocalFocusManager.current
     val keyboard=LocalSoftwareKeyboardController.current
     val imeOpen=WindowInsets.ime.getBottom(LocalDensity.current)>0
     Column(Modifier.fillMaxSize()) {
-        key(pageKey) { Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) { content();Spacer(Modifier.height(16.dp)) } }
-        Surface(shadowElevation=2.dp) {
+        if(!imeOpen)header()
+        key(pageKey) {
+            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(scroll ?: rememberScrollState()).padding(16.dp),
+                verticalArrangement=Arrangement.spacedBy(12.dp)) { content();Spacer(Modifier.height(16.dp)) }
+        }
+        if(!imeOpen)Surface(shadowElevation=2.dp) {
             Column(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=6.dp)) {
-                if(!imeOpen)SaveStatus(state,vm)
-                Button(onClick={ focus.clearFocus();keyboard?.hide();vm.flushPending();onPrimary() },enabled=enabled&&!state.busy,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(primary) }
-                if(!imeOpen && secondary!=null)TextButton(onClick={ focus.clearFocus();onSecondary() },modifier=Modifier.fillMaxWidth()) { Text(secondary) }
+                SaveStatus(state,vm)
+                Button(onClick={ focus.clearFocus();keyboard?.hide();onPrimary() },enabled=enabled&&!state.busy,modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)) { Text(primary) }
+                if(secondary!=null)TextButton(onClick={ focus.clearFocus();onSecondary() },modifier=Modifier.fillMaxWidth()) { Text(secondary) }
             }
         }
     }
@@ -136,6 +154,10 @@ internal object RupiahTransformation:VisualTransformation {
     val bring=remember(tag) { BringIntoViewRequester() }
     val scope=rememberCoroutineScope()
     var focused by remember(tag) { mutableStateOf(false) }
+    val imeOpen=WindowInsets.ime.getBottom(LocalDensity.current)>0
+    LaunchedEffect(imeOpen,focused) {
+        if(imeOpen && focused) { delay(180);bring.bringIntoView() }
+    }
     LaunchedEffect(request,tag) { if(request.tag==tag) { delay(60);runCatching { requester.requestFocus() };bring.bringIntoView() } }
     return Modifier.focusRequester(requester).bringIntoViewRequester(bring).onFocusChanged { f->
         if(focused&&!f.isFocused)commit()

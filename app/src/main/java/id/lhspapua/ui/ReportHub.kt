@@ -9,33 +9,29 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import id.lhspapua.domain.*
 
-@Composable internal fun HomeScreen(state:UiState,vm:LhsViewModel,settings:()->Unit) {
+@Composable internal fun HomeScreen(state:UiState,vm:LhsViewModel) {
     ScrollPage {
-        HomeAction("CALLSHEET","Catat kunjungan outlet dan jumlah penjualan.") { vm.navigate("calls") }
-        HomeAction("LAPORAN HARIAN","Isi stok, penjualan, tester, dan keuangan.") { vm.navigate("days") }
         val recentCall=state.calls.find { it.id==state.lastId&&!it.completed }
         val recentDay=state.days.find { it.id==state.lastId&&it.status==ReportStatus.DRAFT }
-        val call=recentCall ?: if(recentDay==null&&state.lastType!="day")state.calls.firstOrNull { !it.completed } else null
+        val call=recentCall ?: if(recentDay==null)state.calls.firstOrNull { !it.completed } else null
         val day=recentDay ?: if(call==null)state.days.firstOrNull { it.status==ReportStatus.DRAFT } else null
-        if(call!=null||day!=null) {
-            HorizontalDivider();Text("Lanjutkan Draft Terakhir",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
+        if(call!=null || day!=null) {
             val identity=call?.identity ?: day!!.identity
-            Text("${if(call!=null)"Callsheet" else "Laporan Harian"} · ${identity.displayDate()} · ${identity.sales}")
-            OutlinedButton(onClick={ if(call!=null)vm.open(call) else vm.open(day!!) },modifier=Modifier.fillMaxWidth()) { Text("Lanjutkan Laporan") }
+            OutlinedCard(onClick={ if(call!=null)vm.open(call) else vm.open(day!!) },modifier=Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                    Text("Lanjutkan Laporan",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
+                    Text("${if(call!=null)"Callsheet" else "Laporan Harian"} · Draf")
+                    Text("${identity.displayDate()} · ${identity.sales.ifBlank { "Sales belum diisi" }}",style=MaterialTheme.typography.bodySmall)
+                }
+            }
+        } else {
+            Text("Belum ada draf",style=MaterialTheme.typography.titleMedium)
+            Text("Pilih Callsheet atau LHS untuk memulai laporan.")
         }
-        HorizontalDivider()
-        OutlinedButton(onClick={ vm.navigate("history") },modifier=Modifier.fillMaxWidth()) { Text("Riwayat") }
-        TextButton(onClick=settings,modifier=Modifier.fillMaxWidth()) { Text("Pengaturan") }
-    }
-}
-@Composable private fun HomeAction(title:String,subtitle:String,action:()->Unit) {
-    ElevatedCard(onClick=action,modifier=Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(22.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) { Text(title,style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold);Text(subtitle) }
     }
 }
 @Composable internal fun ReportHub(daily:Boolean,state:UiState,vm:LhsViewModel) {
     ScrollPage {
-        Text(if(daily)"Laporan Harian" else "Callsheet",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
         Button(onClick={ if(daily)vm.newDay() else vm.newCall() },modifier=Modifier.fillMaxWidth()) { Text("Buat Laporan Baru") }
         val calls=state.calls.filterNot { it.completed }
         val days=state.days.filter { it.status==ReportStatus.DRAFT }.sortedWith(compareByDescending<DailyReport> { it.identity.date }.thenByDescending { it.stockSequence })
@@ -43,7 +39,6 @@ import id.lhspapua.domain.*
         if(daily)days.forEach { r->ReportRow(r.identity,if(r.formatVersion<2)"Laporan lama" else "Draf") { vm.open(r) } }
         else calls.forEach { r->ReportRow(r.identity,"${r.activeOutlets().size} outlet") { vm.open(r) } }
         if(if(daily)days.isEmpty() else calls.isEmpty())Text("Belum ada draf. Pilih Buat Laporan Baru untuk mulai.")
-        TextButton(onClick={ vm.navigate("history") }) { Text("Lihat semua riwayat") }
     }
 }
 @Composable private fun ReportRow(identity:Identity,status:String,action:()->Unit) {
