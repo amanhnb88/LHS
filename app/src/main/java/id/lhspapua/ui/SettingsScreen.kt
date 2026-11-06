@@ -13,7 +13,7 @@ import id.lhspapua.domain.*
 @Composable internal fun SettingsScreen(section:String,select:(String)->Unit,state:UiState,vm:LhsViewModel,backup:()->Unit,restore:()->Unit) {
     when(section) {
         "" -> {
-            listOf(Triple("profil","Profil Sales","Identitas yang sering dipakai."),Triple("harga","Harga Produk","Harga Grosir, Sub Grosir, dan Retail."),Triple("outlet","Daftar Outlet","Nama dan alamat outlet tersimpan."),Triple("backup","Backup Data","Simpan salinan laporan dan lampiran."),Triple("lanjutan","Pengaturan Lanjutan","Aturan keuangan dan penjelasan stok.")).forEach { (key,title,description)->MainCard(title,description) { select(key) } }
+            listOf(Triple("profil","Profil Sales","Identitas yang sering dipakai."),Triple("harga","Harga Produk","Harga resmi Grosir dan Retail."),Triple("outlet","Daftar Outlet","Nama dan alamat outlet tersimpan."),Triple("backup","Backup Data","Simpan salinan laporan dan lampiran."),Triple("lanjutan","Pengaturan Lanjutan","Aturan keuangan dan penjelasan stok.")).forEach { (key,title,description)->MainCard(title,description) { select(key) } }
         }
         "profil" -> {
             Text("Profil Sales",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
@@ -23,15 +23,13 @@ import id.lhspapua.domain.*
         "harga" -> {
             var product by rememberSaveable { mutableIntStateOf(0) }
             Text("Harga Produk",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
-            Notice("Berlaku untuk laporan baru. Harga pada laporan lama tidak berubah.")
+            Text("Harga resmi untuk laporan baru.")
             ProductTabs(product) { product=it }
             Panel(Product.entries[product].label) {
-                Tier.entries.forEachIndexed { i,_ ->
-                    val title=listOf("Grosir (G)","Sub Grosir (SG)","Retail (RTL)")[i]
-                    Numeric("Harga $title",state.settings.prices[product][i],money=true) { n ->
-                        vm.settings { settings -> settings.copy(prices=settings.prices.replace(product,settings.prices[product].replace(i,n))) }
-                    }
-                }
+                val prices = OfficialPrices.values[product]
+                Text("Grosir (G): ${Calculation.rupiah(prices[Tier.G.ordinal])}")
+                Text("Retail (RTL): ${Calculation.rupiah(prices[Tier.RTL.ordinal])}")
+                Text("Sub Grosir (SG): Tidak berlaku")
             }
         }
         "outlet" -> SavedOutlets(state.settings,vm)

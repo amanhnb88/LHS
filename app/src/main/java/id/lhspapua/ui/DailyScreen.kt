@@ -89,6 +89,7 @@ import java.io.File
 }
 @Composable private fun ProductEditor(r:DailyReport,p:Int,state:UiState,vm:LhsViewModel) {
     val stock=r.products[p]
+    val historicalPrices = stock.sales[Tier.SG.ordinal].applicable
     var prices by rememberSaveable(r.id,p) { mutableStateOf(false) }
     var promotions by rememberSaveable(r.id,p) { mutableStateOf((stock.sample ?: 0)>0||(stock.bonus ?: 0)>0) }
     LaunchedEffect(state.focusSerial) {
@@ -101,7 +102,9 @@ import java.io.File
     }
     Text("Stok tersedia: ${runCatching { Calculation.number(Calculation.available(stock)) }.getOrDefault("Angka terlalu besar")}",style=MaterialTheme.typography.bodySmall)
     Tier.entries.forEachIndexed { t,tier->
-        val sale=stock.sales[t];val label=listOf("Grosir","Sub Grosir","Retail")[t]
+        val sale=stock.sales[t]
+        if(!sale.applicable) return@forEachIndexed
+        val label=listOf("Grosir","Sub Grosir","Retail")[t]
         Row(horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=Alignment.CenterVertically) {
             Column(Modifier.weight(1.5f)) {
                 Text("$label (${tier.label})",fontWeight=FontWeight.SemiBold)
@@ -112,18 +115,20 @@ import java.io.File
         }
         Text("Subtotal: ${Calculation.safeMoney { Calculation.subtotal(sale) }}",style=MaterialTheme.typography.bodySmall)
     }
-    TextButton(onClick={ prices=!prices }) { Text(if(prices)"Tutup Harga" else "Ubah Harga Laporan Ini") }
-    if(prices) {
+    if(historicalPrices) {
+        Text("Harga tersimpan pada laporan ini.",style=MaterialTheme.typography.bodySmall)
+        TextButton(onClick={ prices=!prices }) { Text(if(prices)"Tutup Harga" else "Ubah Harga Laporan Ini") }
+    }
+    if(historicalPrices && prices) {
         Text("Harga hanya berubah pada laporan ini.",style=MaterialTheme.typography.bodySmall)
         Tier.entries.forEachIndexed { t,tier->Numeric("Harga ${tier.label}",stock.sales[t].price,money=true,tag="price-$p-$t",done=t==2) { n->vm.day { it.copy(products=it.products.replace(p,it.products[p].copy(sales=it.products[p].sales.replace(t,it.products[p].sales[t].copy(price=n))))) } } }
-        TextButton(onClick={ vm.settings { it.copy(prices=it.prices.replace(p,stock.sales.map { s->s.price })) } }) { Text("Gunakan Harga Ini untuk Laporan Baru") }
     }
     TextButton(onClick={ promotions=!promotions }) { Text(if(promotions)"Tutup Sampel & Bonus" else "Sampel & Bonus · ${stock.sample ?: "—"} / ${stock.bonus ?: "—"}") }
     if(promotions)Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
         Numeric("Sampel",stock.sample,modifier=Modifier.weight(1f),tag="stock-$p-sample") { n->vm.day { it.copy(products=it.products.replace(p,it.products[p].copy(sample=n))) } }
         Numeric("Bonus",stock.bonus,modifier=Modifier.weight(1f),tag="stock-$p-bonus",done=true) { n->vm.day { it.copy(products=it.products.replace(p,it.products[p].copy(bonus=n))) } }
     }
-    TextButton(onClick={ vm.day { it.copy(products=it.products.replace(p,it.products[p].copy(delivery=stock.delivery ?: 0,sample=stock.sample ?: 0,bonus=stock.bonus ?: 0,sales=stock.sales.map { s->s.copy(quantity=s.quantity ?: 0) }))) } }) { Text("Tidak Ada — Isi Jumlah Kosong 0") }
+    TextButton(onClick={ vm.day { it.copy(products=it.products.replace(p,it.products[p].copy(delivery=stock.delivery ?: 0,sample=stock.sample ?: 0,bonus=stock.bonus ?: 0,sales=stock.sales.map { sale->if(sale.applicable) sale.copy(quantity=sale.quantity ?: 0) else sale }))) } }) { Text("Tidak Ada — Isi Jumlah Kosong 0") }
     val tg=runCatching { Calculation.tg(stock,r.rules) }.getOrNull()
     Text("Terjual: ${runCatching { Calculation.number(Calculation.sold(stock)) }.getOrDefault("—")} · Sisa Stok: ${Calculation.number(tg)}",fontWeight=FontWeight.Bold,color=if(tg!=null&&tg<0)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
     if(tg!=null&&tg<0)Notice("Stok tidak mencukupi. Periksa Stok Awal, DO, penjualan, sampel, dan bonus.",true)

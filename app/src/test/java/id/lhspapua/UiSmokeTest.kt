@@ -77,7 +77,7 @@ class UiSmokeTest {
         text("outlet-search","aimas");click("Toko Aimas")
         compose.onNodeWithTag("Alamat").assertTextContains("Jalan Aimas")
         assertTrue(vm.state.value.call!!.outlets.last().quantities.all { it.stock==null&&it.sold==null })
-        repeat(3) { p->text("call-$p-stock","10");text("call-$p-sold","3") }
+        text("call-1-sold","200")
         snapshot("STAGE3_CALLSHEET");click("Simpan & Tambah Outlet");click("Daftar Kunjungan")
         // Finish the list recomposition before sending the real Android Back event.
         // Otherwise Back can still invoke the previous outlet editor callback.
@@ -87,20 +87,23 @@ class UiSmokeTest {
         saved();assertEquals(count,vm.state.value.calls.size)
         compose.onAllNodesWithText("Lanjutkan").onFirst().performClick();assertEquals(id,vm.state.value.call!!.id)
         compose.onNodeWithText("1. Toko Aimas").performScrollTo().assertExists()
+        val restored = vm.state.value.call!!.activeOutlets().single().quantities
+        assertEquals(Quantity(sold=200), restored[1])
+        assertEquals(Quantity(), restored[0])
         snapshot("STAGE3_VISITS")
     }
-    @Test fun tenVisitsEditAndContextualValidationPreserveNumbers() {
+    @Test fun tenVisitsAllowSoldAboveStockAndPreserveNumbers() {
         newCall();click("Tambah Outlet")
         repeat(10) { n->text("Nama Outlet","Outlet Uji ${n+1}");text("Alamat","Jayapura")
             repeat(3) { p->text("call-$p-stock","10");text("call-$p-sold","3") }
             click("Simpan & Tambah Outlet")
         }
         click("Daftar Kunjungan");text("outlet-search","Outlet Uji 10");click("Edit Kunjungan")
-        text("call-0-sold","11");click("Simpan Perubahan")
-        compose.onNodeWithTag("call-0-sold").assertTextContains("11")
-        compose.onNodeWithText("Melebihi stok").assertExists()
-        text("call-0-sold","4");click("Simpan Perubahan")
-        text("outlet-search","");click("Periksa Laporan");compose.onNodeWithText("Stok 100 · Jual 31").performScrollTo().assertExists()
+        text("call-0-sold","11")
+        compose.onNodeWithText("Melebihi stok").assertDoesNotExist()
+        click("Simpan Perubahan")
+        text("outlet-search","");click("Periksa Laporan")
+        compose.onNodeWithText("Stok 100 · Jual 38").performScrollTo().assertExists()
         click("Edit Callsheet");text("outlet-search","Outlet Uji 10");click("Hapus");click("Batal")
         compose.onNodeWithText("10. Outlet Uji 10").assertExists();click("Hapus")
         compose.onNode(hasText("Hapus") and hasClickAction() and hasAnyAncestor(isDialog())).performClick()
@@ -111,7 +114,9 @@ class UiSmokeTest {
         click("LAPORAN HARIAN");click("Buat Laporan Baru");saved()
         repeat(3) { p->click(Product.entries[p].label)
             text("stock-$p-opening","50");text("stock-$p-do","200")
-            text("sale-$p-G","100");text("sale-$p-SG","40");text("sale-$p-RTL","10")
+            compose.onNodeWithTag("sale-$p-SG").assertDoesNotExist()
+            compose.onNodeWithText("Ubah Harga Laporan Ini").assertDoesNotExist()
+            text("sale-$p-G","100");text("sale-$p-RTL","50")
             click("Sampel & Bonus · 0 / 0");text("stock-$p-sample","10");text("stock-$p-bonus","5")
             if(p==0)snapshot("STAGE3_PRODUCT")
         }
@@ -120,22 +125,29 @@ class UiSmokeTest {
         repeat(3) { p->text("tester-$p-opening","5");text("tester-$p-do","10");text("tester-$p-sample","3") }
         snapshot("STAGE3_TESTER");click("Keuangan");text("Saldo Sebelum","50000")
         snapshot("STAGE3_FINANCE");click("Periksa Laporan")
-        compose.onNodeWithText("Total Penjualan: Rp 4.500.000").performScrollTo().assertExists()
-        compose.onNodeWithText("Saldo Akhir: Rp 4.550.000").assertExists()
+        compose.onNodeWithText("Total Penjualan: Rp 7.050.000").performScrollTo().assertExists()
+        compose.onNodeWithText("Saldo Akhir: Rp 7.100.000").assertExists()
         compose.onNodeWithText("Simpan PDF").performScrollTo().assertExists();compose.onNodeWithText("Simpan Excel").performScrollTo().assertExists()
         click("Selesaikan Laporan");compose.onNode(hasText("Selesaikan") and hasClickAction()).performClick();saved()
         assertEquals(ReportStatus.FINAL,vm.state.value.day!!.status)
+        compose.runOnIdle { vm.export() };saved()
+        compose.runOnIdle { vm.export(xlsx=true) };saved()
+        assertTrue((vm.state.value.pdf?.length() ?: 0L) > 0L)
+        assertTrue((vm.state.value.xlsx?.length() ?: 0L) > 0L)
     }
     @Test fun imeNextDoneAndRupiahPasteRetainCursorAndFinalValue() {
         newCall();click("Tambah Outlet");text("Nama Outlet","Toko Fokus");text("call-0-stock","10")
         compose.onNodeWithTag("call-0-stock").performImeAction()
         compose.onNodeWithTag("call-0-sold").assertIsFocused()
         text("call-2-sold","0");compose.onNodeWithTag("call-2-sold").performImeAction();compose.onNodeWithTag("call-2-sold").assertIsNotFocused()
-        compose.runOnIdle { vm.navigate("settings") }
-        click("Harga Produk");compose.onNodeWithTag("Harga Grosir (G)").performScrollTo().performTextReplacement("Rp 14.500")
-        saved();assertEquals(14500L,vm.state.value.settings.prices[0][0])
-        compose.onNodeWithTag("Harga Grosir (G)").performTextInputSelection(androidx.compose.ui.text.TextRange(1));compose.onNodeWithTag("Harga Grosir (G)").performTextInput("9")
-        saved();assertEquals(194500L,vm.state.value.settings.prices[0][0])
+        compose.runOnIdle { vm.newDay() };saved()
+        click("Keuangan")
+        val balance = compose.onNodeWithTag("Saldo Sebelum").performScrollTo()
+        balance.performTextReplacement("Rp 14.500")
+        saved();assertEquals(14500L,vm.state.value.day!!.finance.previous)
+        balance.performTextInputSelection(androidx.compose.ui.text.TextRange(1))
+        balance.performTextInput("9")
+        saved();assertEquals(194500L,vm.state.value.day!!.finance.previous)
     }
     @Test @Config(sdk=[34],qualifiers="en-rUS-w360dp-h640dp") fun smallScreenLargeFontAndSyntheticKeyboardUseInsetsOnce() {
         compose.runOnIdle { compose.activity.setContent { val density=LocalDensity.current;CompositionLocalProvider(LocalDensity provides Density(density.density,1.3f)) { LhsApp(vm) } } }

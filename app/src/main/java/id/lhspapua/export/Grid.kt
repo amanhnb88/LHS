@@ -60,19 +60,24 @@ object Layout {
         listOf("Hari: ${i.day()}","Sales: ${i.sales}","Area: ${i.area}","Rute: ${i.route}","Kendaraan: ${i.vehicle}","Nopol: ${i.plate}").forEachIndexed { k,t -> s.put(2,k*4,cs=4,t=t,b=true,size=8f) }
         s.put(3,0,cs=8,t="Tgl: ${i.displayDate()}",b=true); s.put(3,8,cs=16,t="Join: ${i.join}",b=true)
         s.put(5,0,cs=10,t="STOCK",b=true,center=true,size=14f); s.put(5,10,cs=14,t="PENJUALAN",b=true,center=true,size=14f)
+        val missingPrices = r.products.flatMapIndexed { p, stock ->
+            stock.sales.indices.filter { stock.sales[it].applicable }.map { tier ->
+                missingPrice(s, 8+p*8+tier)
+            }
+        }.joinToString(",")
         r.products.forEachIndexed { p, stock ->
             val base=6+p*8
+            val activeTiers = stock.sales.indices.filter { stock.sales[it].applicable }
+            val soldRefs = activeTiers.joinToString(",") { s.ref(base+2+it,13) }
             s.put(base,0,rs=2,cs=10,t=Product.entries[p].label,b=true,size=12f); s.put(base,10,rs=2,cs=14,t=Product.entries[p].label,b=true,size=12f)
             val quantities=listOf(stock.delivery,Calculation.sold(stock),stock.sample,stock.bonus,Calculation.tg(stock,r.rules))
             listOf("DO","Jual","Sample","Bns","TG").forEachIndexed { k,label ->
                 s.put(base+2+k,0,cs=4,t="$label :",edges=11)
-                val soldRefs=(0..2).map { s.ref(base+2+it,13) }
                 val f=when(k) {
-                    1 -> "IF(COUNT(${soldRefs.joinToString(",")})=0,\"\",SUM(${soldRefs.joinToString(",")}))"
+                    1 -> "IF(COUNT($soldRefs)=0,\"\",SUM($soldRefs))"
                     4 -> if(stock.openingTracked) {
                         val opening="'_StokAwal'!\$B\$${p+2}"
-                        val quantities=(0..2).map { s.ref(base+2+it,13) }.joinToString(",")
-                        "IF(OR($opening=\"\",${s.ref(base+2,4)}=\"\",${s.ref(base+4,4)}=\"\",${s.ref(base+5,4)}=\"\",COUNT($quantities)<3),\"\",$opening+${s.ref(base+2,4)}-SUM(${s.ref(base+3,4)},${s.ref(base+4,4)},${s.ref(base+5,4)}))"
+                        "IF(OR($opening=\"\",${s.ref(base+2,4)}=\"\",${s.ref(base+4,4)}=\"\",${s.ref(base+5,4)}=\"\",COUNT($soldRefs)<${activeTiers.size}),\"\",$opening+${s.ref(base+2,4)}-SUM(${s.ref(base+3,4)},${s.ref(base+4,4)},${s.ref(base+5,4)}))"
                     } else if(r.rules.automaticTg) "IF(${s.ref(base+2,4)}=\"\",\"\",${s.ref(base+2,4)}-SUM(${s.ref(base+3,4)})${if(r.rules.subtractSample) "-SUM(${s.ref(base+4,4)})" else ""}${if(r.rules.subtractBonus) "-SUM(${s.ref(base+5,4)})" else ""})" else null
                     else -> null
                 }
@@ -83,16 +88,17 @@ object Layout {
             stock.sales.forEachIndexed { t,sale ->
                 val row=base+2+t
                 s.put(row,10,cs=3,t=Tier.entries[t].label,b=true,center=true)
-                s.put(row,13,cs=2,n=sale.quantity,center=true,edges=11)
+                s.put(row,13,cs=2,n=sale.quantity.takeIf { sale.applicable },center=true,edges=11)
                 s.put(row,15,t="x",center=true,edges=10)
-                s.put(row,16,cs=3,n=sale.price,money=true,edges=10)
+                s.put(row,16,cs=3,t=if(sale.applicable) "" else "-",n=sale.price.takeIf { sale.applicable },money=true,edges=10)
                 s.put(row,19,t="=",center=true,edges=10)
                 val q=s.ref(row,13); val price=s.ref(row,16)
-                s.put(row,20,cs=4,n=Calculation.subtotal(sale),f="IF($q=\"\",\"\",IF($q=0,0,IF($price=\"\",\"\",$q*$price)))",money=true,edges=14)
+                s.put(row,20,cs=4,n=Calculation.subtotal(sale),f=if(sale.applicable) "IF($q=\"\",\"\",IF($q=0,0,IF($price=\"\",\"\",$q*$price)))" else null,money=true,edges=14)
             }
             s.put(base+5,10,rs=2,cs=10,t="Total",b=true,center=true)
-            val range="${s.ref(base+2,20)}:${s.ref(base+4,20)}"
-            val missing=(0..2).joinToString(",") { t -> "AND(${s.ref(base+2+t,13)}>0,${s.ref(base+2+t,16)}=\"\")" }
+            val range = if(activeTiers.size == 3) "${s.ref(base+2,20)}:${s.ref(base+4,20)}"
+                else activeTiers.joinToString(",") { s.ref(base+2+it,20) }
+            val missing = activeTiers.joinToString(",") { missingPrice(s, base+2+it) }
             s.put(base+5,20,rs=2,cs=4,n=Calculation.productTotal(stock),f="IF(OR($missing),\"\",IF(COUNT($range)=0,\"\",SUM($range)))",money=true,b=true)
             s.put(base+7,10,cs=14)
         }
@@ -120,14 +126,12 @@ object Layout {
             val formula=when(k) {
                 0 -> {
                     val refs=listOf(11,19,27).map { s.ref(it,20) }
-                    val missing=(0..2).flatMap { p -> (0..2).map { t -> val row=8+p*8+t; "AND(${s.ref(row,13)}>0,${s.ref(row,16)}=\"\")" } }.joinToString(",")
-                    "IF(OR($missing),\"\",IF(COUNT(${refs.joinToString(",")})=0,\"\",SUM(${refs.joinToString(",")})))"
+                    "IF(OR($missingPrices),\"\",IF(COUNT(${refs.joinToString(",")})=0,\"\",SUM(${refs.joinToString(",")})))"
                 }
                 6 -> if(!r.rules.automaticFinance || !r.rules.acknowledged) null else {
-                    val missing=(0..2).flatMap { p -> (0..2).map { t -> val row=8+p*8+t; "AND(${s.ref(row,13)}>0,${s.ref(row,16)}=\"\")" } }.joinToString(",")
                     val range="F40:F45"
                     val condition=if(r.formatVersion>=2) "COUNT($range)<6" else "COUNT($range)=0"
-                    "IF(OR($missing),\"\",IF($condition,\"\",SUM(F41,F40)${signed(r.rules.debtSign,"F42")}${signed(r.rules.settlementSign,"F43")}${signed(r.rules.transferSign,"F44")}${signed(r.rules.expenseSign,"F45")}))"
+                    "IF(OR($missingPrices),\"\",IF($condition,\"\",SUM(F41,F40)${signed(r.rules.debtSign,"F42")}${signed(r.rules.settlementSign,"F43")}${signed(r.rules.transferSign,"F44")}${signed(r.rules.expenseSign,"F45")}))"
                 }
                 else -> null
             }
@@ -162,5 +166,8 @@ object Layout {
         }
         result.add(line); result
     }
+    private fun missingPrice(sheet: Sheet, row: Int) =
+        "AND(${sheet.ref(row,13)}>0,${sheet.ref(row,16)}=\"\")"
+
     private fun signed(sign:Int,ref:String) = (if(sign==1) "+" else "-")+"SUM($ref)"
 }

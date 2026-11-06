@@ -20,7 +20,7 @@ import java.util.UUID
 fun Outlet.untouched() = name.isBlank() && address.isBlank() && quantities.all { it.stock==null && it.sold==null }
 fun CallReport.activeOutlets() = outlets.filterNot { it.untouched() }
 @Serializable data class CallReport(val id: String = UUID.randomUUID().toString(), val identity: Identity = Identity(), val outlets: List<Outlet> = emptyList(), val completed: Boolean = false)
-@Serializable data class Sale(val quantity: Long? = null, val price: Long? = null)
+@Serializable data class Sale(val quantity: Long? = null, val price: Long? = null, val applicable: Boolean = true)
 @Serializable data class Stock(val delivery: Long? = null, val sample: Long? = null, val bonus: Long? = null, val manualTg: Long? = null, val sales: List<Sale> = List(3) { Sale() }, val opening: Long? = null, val openingTracked: Boolean = false)
 @Serializable data class Tester(val delivery: Long? = null, val sample: Long? = null, val manualTg: Long? = null, val opening: Long? = null, val openingTracked: Boolean = false)
 @Serializable data class Finance(val previous: Long? = null, val debt: Long? = null, val settlement: Long? = null, val transfer: Long? = null, val expense: Long? = null, val notes: String = "", val madeBy: String = "", val manualBalance: Long? = null)
@@ -44,12 +44,28 @@ fun CallReport.activeOutlets() = outlets.filterNot { it.untouched() }
 @Serializable enum class OpeningMode { AUTO, MANUAL }
 @Serializable data class StockOwner(val id: String = UUID.randomUUID().toString(), val name: String)
 @Serializable data class SavedOutlet(val name: String, val address: String)
-@Serializable data class Settings(val profile: Identity = Identity(), val prices: List<List<Long?>> = List(3) { List(3) { null } }, val rules: Rules = Rules(), val outlets: List<SavedOutlet> = emptyList(), val owners: List<StockOwner> = emptyList())
+@Serializable data class Settings(val profile: Identity = Identity(), val prices: List<List<Long?>> = OfficialPrices.values, val rules: Rules = Rules(), val outlets: List<SavedOutlet> = emptyList(), val owners: List<StockOwner> = emptyList())
 @Serializable data class Backup(val version: Int = 2, val calls: List<CallReport>, val daily: List<DailyReport>, val settings: Settings)
 
 
-/** Defaults for a new Stage 2 draft. An unknown opening stock stays null, never zero. */
+/** Admin tariff for new reports. Existing reports retain their own sales snapshots. */
+object OfficialPrices {
+    val values: List<List<Long?>> = Product.entries.map { product ->
+        when(product) {
+            Product.MARTIL_12 -> listOf(14000L, null, 14500L)
+            Product.MARTIL -> listOf(15000L, null, 15500L)
+            Product.HD_LIGHT -> listOf(17500L, null, 18000L)
+        }
+    }
+
+    fun sales(product: Product): List<Sale> = Tier.entries.map { tier ->
+        if(tier == Tier.SG) Sale(applicable=false)
+        else Sale(quantity=0, price=values[product.ordinal][tier.ordinal])
+    }
+}
+
+/** Unknown opening stock stays empty until the ledger or the sales user supplies it. */
 fun newDaily(identity: Identity, settings: Settings, sequence: Int = 1) = DailyReport(
     identity=identity, formatVersion=2, stockSequence=sequence,
-    products=List(3) { p -> Stock(delivery=0,sample=0,bonus=0,openingTracked=true,sales=List(3) { t -> Sale(0,settings.prices[p][t]) }) },
+    products=Product.entries.map { product -> Stock(delivery=0,sample=0,bonus=0,openingTracked=true,sales=OfficialPrices.sales(product)) },
     testers=List(3) { Tester(delivery=0,sample=0,openingTracked=true) },finance=Finance(debt=0,settlement=0,transfer=0,expense=0,madeBy=identity.sales),rules=settings.rules.copy(automaticTg=true,subtractSample=true,subtractBonus=true))

@@ -18,7 +18,6 @@ import java.io.File
     var editing by rememberSaveable(r.id) { mutableStateOf(false) }
     var query by rememberSaveable(r.id) { mutableStateOf("") }
     var identity by rememberSaveable(r.id) { mutableStateOf(r.identity.sales.isBlank()) }
-    var attempted by remember(selected) { mutableStateOf(false) }
     LaunchedEffect(selected) { vm.rememberOutlet(r.id,selected) }
     val outlet=r.outlets.find { it.id==selected }
     val directory=OutletSearch.matches(query,state.settings,state.calls.filterNot { it.id==r.id })
@@ -28,23 +27,17 @@ import java.io.File
         val next=if(saved==null)Outlet(name=query.trim()) else OutletSearch.visit(saved)
         val chosen=if(blank!=null)next.copy(id=blank.id) else next
         vm.call { it.copy(outlets=if(blank==null)it.outlets+chosen else it.outlets.map { o->if(o.id==blank.id)chosen else o }) }
-        selected=chosen.id;editing=false;query="";attempted=false
+        selected=chosen.id;editing=false;query=""
     }
     fun list() { selected=null;query="" }
     fun saveOutlet() {
         val current=vm.state.value.call?.outlets?.find { it.id==selected } ?: return
-        attempted=true
-        val missing=when {
-            current.name.isBlank()->"Nama Outlet"
-            else->current.quantities.withIndex().firstNotNullOfOrNull { (p,q)->when { q.stock==null->"call-$p-stock";q.sold==null||q.sold>q.stock->"call-$p-sold";else->null } }
-        }
-        if(missing!=null) { vm.focus(missing);return }
         vm.saveOutlet(current)
         if(editing)list() else add()
     }
     BackHandler { when { outlet!=null->list();review->review=false;else->vm.navigate("home") } }
     if(review) {
-        ReportReview(state,vm,save,share,call=r,onEdit={ vm.call { it };review=false },onIssue={ tag->review=false;if(tag.field=="Nama Sales")identity=true;selected=tag.outletId;editing=true;attempted=true;vm.focus(tag.field) })
+        ReportReview(state,vm,save,share,call=r,onEdit={ vm.call { it };review=false },onIssue={ tag->review=false;selected=tag.outletId;editing=true;vm.focus(tag.field) })
     } else FlowFrame(pageKey="call-${r.id}-${selected ?: "list"}",state=state,vm=vm,
         primary=if(outlet==null)"Tambah Outlet" else if(editing)"Simpan Perubahan" else "Simpan & Tambah Outlet",
         onPrimary={ if(outlet==null)add() else saveOutlet() },secondary=if(outlet!=null)"Daftar Kunjungan" else "Periksa Laporan",onSecondary={ if(outlet!=null)list() else { review=true;vm.flushPending() } }) {
@@ -68,7 +61,7 @@ import java.io.File
             }
         } else {
             Text(if(editing)"Edit Kunjungan" else "Kunjungan Baru",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
-            TextInput("Nama Outlet",outlet.name,error=if(attempted&&outlet.name.isBlank())"Isi nama outlet" else null) { name->vm.call { it.copy(outlets=it.outlets.map { row->if(row.id==outlet.id)row.copy(name=name) else row }) } }
+            TextInput("Nama Outlet",outlet.name) { name->vm.call { it.copy(outlets=it.outlets.map { row->if(row.id==outlet.id)row.copy(name=name) else row }) } }
             val suggestions=OutletSearch.matches(outlet.name,state.settings,state.calls.filterNot { it.id==r.id }).filterNot { it.name.equals(outlet.name,true)&&it.address==outlet.address }
             if(outlet.name.isNotBlank())suggestions.take(3).forEach { saved->OutletSuggestion(saved) { vm.call { it.copy(outlets=it.outlets.map { row->if(row.id==outlet.id)row.copy(name=saved.name,address=saved.address) else row }) } } }
             TextInput("Alamat",outlet.address,true) { address->vm.call { it.copy(outlets=it.outlets.map { row->if(row.id==outlet.id)row.copy(address=address) else row }) } }
@@ -79,12 +72,11 @@ import java.io.File
                 val q=outlet.quantities[p]
                 Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                     Text(product.label,Modifier.weight(1.5f),style=MaterialTheme.typography.labelLarge)
-                    Numeric("Stok ${product.label}",q.stock,modifier=Modifier.weight(1f),compact=true,tag="call-$p-stock",error=if(attempted&&q.stock==null)"Isi stok" else null) { n->vm.call { report->report.copy(outlets=report.outlets.map { o->if(o.id==outlet.id)o.copy(quantities=o.quantities.replace(p,o.quantities[p].copy(stock=n))) else o }) } }
-                    Numeric("Jual ${product.label}",q.sold,modifier=Modifier.weight(1f),compact=true,tag="call-$p-sold",done=p==2,error=when { q.stock!=null&&q.sold!=null&&q.sold>q.stock->"Melebihi stok";attempted&&q.sold==null->"Isi jual";else->null }) { n->vm.call { report->report.copy(outlets=report.outlets.map { o->if(o.id==outlet.id)o.copy(quantities=o.quantities.replace(p,o.quantities[p].copy(sold=n))) else o }) } }
+                    Numeric("Stok ${product.label}",q.stock,modifier=Modifier.weight(1f),compact=true,tag="call-$p-stock") { n->vm.call { report->report.copy(outlets=report.outlets.map { o->if(o.id==outlet.id)o.copy(quantities=o.quantities.replace(p,o.quantities[p].copy(stock=n))) else o }) } }
+                    Numeric("Jual ${product.label}",q.sold,modifier=Modifier.weight(1f),compact=true,tag="call-$p-sold",done=p==2) { n->vm.call { report->report.copy(outlets=report.outlets.map { o->if(o.id==outlet.id)o.copy(quantities=o.quantities.replace(p,o.quantities[p].copy(sold=n))) else o }) } }
                 }
             }
-            TextButton(onClick={ vm.call { it.copy(outlets=it.outlets.map { o->if(o.id==outlet.id)o.copy(quantities=o.quantities.map { q->Quantity(q.stock ?: 0,q.sold ?: 0) }) else o }) } }) { Text("Tidak Ada — Isi Kolom Kosong 0") }
-            Text("Jumlah dalam bungkus",style=MaterialTheme.typography.bodySmall)
+            Text("Jumlah dalam bungkus. Kolom yang tidak diisi boleh dibiarkan kosong.",style=MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -97,7 +89,6 @@ import java.io.File
     Column(Modifier.fillMaxWidth()) {
         Text("$number. ${outlet.name.ifBlank { "Nama belum diisi" }}",fontWeight=FontWeight.SemiBold)
         if(outlet.address.isNotBlank())Text(outlet.address,style=MaterialTheme.typography.bodySmall,maxLines=2)
-        Text(if(Calculation.errors(CallReport(outlets=listOf(outlet))).isEmpty())"Lengkap" else "Perlu dilengkapi",style=MaterialTheme.typography.labelMedium)
         Row { TextButton(onClick=edit) { Text("Edit Kunjungan") };ConfirmButton("Hapus","Hapus kunjungan ${outlet.name}?") { remove() } }
         HorizontalDivider()
     }

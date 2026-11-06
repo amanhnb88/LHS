@@ -1,6 +1,10 @@
 name: Android signed release
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/android-release.yml
 permissions:
   contents: read
 concurrency:
@@ -8,7 +12,11 @@ concurrency:
   cancel-in-progress: false
 jobs:
   release:
-    if: github.ref == 'refs/heads/main'
+    # Allow this one release push from the reviewed baseline, then use manual dispatch.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.before == '97b0b2077e762628e2fe08abc985410341dd7f86')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -47,7 +55,7 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: LHS-Papua-1.2.0-signed
+          name: LHS-Papua-1.2.1-signed
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30

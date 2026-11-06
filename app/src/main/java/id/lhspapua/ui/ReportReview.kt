@@ -28,7 +28,7 @@ import java.io.File
             Text("${call.activeOutlets().size} outlet",fontWeight=FontWeight.Bold)
             Product.entries.forEachIndexed { p,product->
                 Text(product.label,fontWeight=FontWeight.Bold)
-                Text("Stok ${runCatching { Calculation.number(Calculation.calls(call,p,true)) }.getOrDefault("—")} · Jual ${runCatching { Calculation.number(Calculation.calls(call,p,false)) }.getOrDefault("—")}")
+                Text("Stok ${runCatching { Calculation.calls(call,p,true)?.toString() ?: "—" }.getOrDefault("—")} · Jual ${runCatching { Calculation.calls(call,p,false)?.toString() ?: "—" }.getOrDefault("—")}")
             }
             TextButton(onClick=onEdit) { Text("Edit Callsheet") }
         } else if(day!=null) {
