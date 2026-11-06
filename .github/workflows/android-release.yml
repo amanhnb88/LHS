@@ -16,7 +16,7 @@ jobs:
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
-       github.event.before == '526edd38e8af217c3423085bb8bf16b21a162a13')
+       github.event.before == 'f014c692c6214fbfabadc28f0fd9ecea43138620')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -99,9 +99,8 @@ jobs:
             adb logcat -d -t 1800 > "$RUNNER_TEMP/lhs-device.log"
             exit 1
           }
-          if adb exec-out run-as id.lhspapua tar -C cache/exports -cf - jpg-proof > "$RUNNER_TEMP/lhs-jpg-proof.tar"; then
-            tar -xf "$RUNNER_TEMP/lhs-jpg-proof.tar" -C "$RUNNER_TEMP"
-          fi
+          adb pull /sdcard/Download/LHSProof "$RUNNER_TEMP/jpg-proof" ||
+            echo "::warning::JPG tests passed but visual evidence could not be collected."
       - name: Upload test reports and UI captures
         if: always()
         uses: actions/upload-artifact@v4

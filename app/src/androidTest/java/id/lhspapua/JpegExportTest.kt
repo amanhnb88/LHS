@@ -1,6 +1,8 @@
 package id.lhspapua
 
 import android.content.Context
+import android.content.ContentValues
+import android.provider.MediaStore
 import android.content.Intent
 import android.graphics.BitmapFactory
 import androidx.test.core.app.ApplicationProvider
@@ -68,5 +70,21 @@ class JpegExportTest {
         val report=draft.copy(products=products)
         assertEquals(13950000L,Calculation.total(report))
         verify(export("LHS_900",listOf(Layout.daily(report))).single(),2480,3508)
+
+        // Publish only fixture output so CI can retrieve it after instrumentation cleanup.
+        if(android.os.Build.VERSION.SDK_INT>=29) {
+            val resolver=context.contentResolver
+            for(file in folder.listFiles().orEmpty()) {
+                val values=ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME,file.name)
+                    put(MediaStore.MediaColumns.MIME_TYPE,if(file.extension=="jpg")"image/jpeg" else "application/pdf")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH,"Download/LHSProof")
+                    put(MediaStore.MediaColumns.IS_PENDING,1)
+                }
+                val uri=requireNotNull(resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI,values))
+                requireNotNull(resolver.openOutputStream(uri)).use { out->file.inputStream().use { it.copyTo(out) } }
+                resolver.update(uri,ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING,0) },null,null)
+            }
+        }
     }
 }
