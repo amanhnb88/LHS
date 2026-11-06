@@ -46,8 +46,13 @@ class JpegExportTest {
             } finally { sample.recycle() }
         }
 
-        val three=visits(3)
-        assertEquals(6L,Calculation.calls(three,1,false))
+        val three=visits(3).let { report ->
+            report.copy(outlets=report.outlets.zip(listOf(100L,200L,50L)) { outlet,sold ->
+                outlet.copy(quantities=listOf(Quantity(),Quantity(sold=sold),Quantity()))
+            })
+        }
+        assertEquals(350L,Calculation.calls(three,1,false))
+        assertNull(Calculation.calls(three,1,true))
         val single=export("CALLSHEET_3",Layout.calls(three))
         verify(single.single(),3508,2480)
         val pages=export("CALLSHEET_65",Layout.calls(visits(65)))

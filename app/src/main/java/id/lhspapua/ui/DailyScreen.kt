@@ -52,25 +52,32 @@ import java.io.File
         onPrimary={ reviewFrom=section;section=3;vm.flushPending() },
         scroll=when(section) { 0 -> stockScroll;1 -> testerScroll;else -> financeScroll },
         header={
-            Column(Modifier.fillMaxWidth().padding(horizontal=16.dp)) {
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                    listOf(if(r.independent)"Stok & Penjualan" else "Barang","Tester","Keuangan").forEachIndexed { i,title ->
-                        FilterChip(selected=section==i,onClick={
-                            if(section!=i) {
-                                val prior=trail.indexOf(i)
-                                trail=if(prior>=0)trail.copyOf(prior) else trail+section
-                                section=i
-                                vm.flushPending()
-                            }
-                        },label={ Text(title,style=MaterialTheme.typography.labelMedium) },
-                            modifier=Modifier.weight(if(i==0 && r.independent) 1.6f else 1f))
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal=16.dp),
+                verticalArrangement=Arrangement.spacedBy(6.dp)
+            ) {
+                EqualTabs(
+                    labels=listOf(if(r.independent) "Stok & Penjualan" else "Barang","Tester","Keuangan"),
+                    selected=section,
+                    tagPrefix="daily-section"
+                ) { next ->
+                    if(section!=next) {
+                        val prior=trail.indexOf(next)
+                        trail=if(prior>=0)trail.copyOf(prior) else trail+section
+                        section=next
+                        vm.flushPending()
                     }
                 }
-                if(r.independent && section==0)ProductTabs(product) { product=it;vm.flushPending() }
+                if(r.independent && section==0) {
+                    EqualTabs(Product.entries.map { it.label },product,"daily-product",secondary=true) {
+                        product=it
+                        vm.flushPending()
+                    }
+                }
             }
         }
     ) {
-        ReportIdentity(r.identity,identity,{ identity=it },vm::updateIdentity) {
+        ReportIdentity(r.identity,identity,{ identity=it },vm::updateIdentity,compact=true) {
             if(r.independent) identity=false
             else if(r.identity.sales.isBlank()) vm.focus("Nama Sales")
             else vm.prepareDailyIdentity { identity=false }
@@ -156,7 +163,7 @@ import java.io.File
         }
     }
     Panel("Stok") {
-        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
             Numeric("Barang Masuk (DO)",stock.delivery,modifier=Modifier.weight(1f),tag="stock-$product-do") { n ->
                 update { it.copy(delivery=n) }
             }

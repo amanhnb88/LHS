@@ -39,6 +39,53 @@ class ExportTest {
             if(count==30) { val dir=File("build/verification").apply { mkdirs() }; File(dir,"CALLSHEET_sample.pdf").writeBytes(pdf.toByteArray()); File(dir,"CALLSHEET_sample.xlsx").writeBytes(xlsx.toByteArray()) }
         }
     }
+    @Test fun salesOnlyCallsheetKeepsBlankStockColumnsAndHistoricalValues() {
+        val visits=listOf(100L,200L,50L).mapIndexed { index,sold ->
+            Outlet(name="TOKO ${index+1}",quantities=listOf(Quantity(),Quantity(sold=sold),Quantity()))
+        }
+        for(historicalStock in listOf(null,42L)) {
+            val first=visits.first().copy(quantities=listOf(Quantity(),Quantity(stock=historicalStock,sold=100),Quantity()))
+            val sheet=Layout.calls(CallReport(outlets=listOf(first)+visits.drop(1))).single()
+            val pdf=ByteArrayOutputStream().also { PdfExport.write(listOf(sheet),it) }
+            PDDocument.load(pdf.toByteArray()).use { doc ->
+                assertEquals(841.8898f,doc.getPage(0).mediaBox.width,0.01f)
+                assertEquals(595.2756f,doc.getPage(0).mediaBox.height,0.01f)
+                val text=PDFTextStripper().getText(doc)
+                assertEquals(3,Regex("Stok").findAll(text).count())
+                assertTrue(text.contains("350"))
+                assertEquals(historicalStock!=null,text.contains("42"))
+            }
+            val xlsx=ByteArrayOutputStream().also { ExcelExport.write(listOf(sheet),it) }
+            XSSFWorkbook(xlsx.toByteArray().inputStream()).use { workbook ->
+                val cells=workbook.getSheetAt(0)
+                val evaluator=workbook.creationHelper.createFormulaEvaluator()
+                assertEquals(9.toShort(),cells.printSetup.paperSize)
+                assertTrue(cells.printSetup.landscape)
+                for(product in Product.entries.indices) {
+                    val stock=Layout.callColumn(3+product*2)
+                    val sold=Layout.callColumn(4+product*2)
+                    assertEquals("Stok",cells.getRow(4).getCell(stock).stringCellValue)
+                    val stockTotal=cells.getRow(35).getCell(stock)
+                    val soldTotal=cells.getRow(35).getCell(sold)
+                    assertEquals(CellType.FORMULA,stockTotal.cellType)
+                    assertEquals(CellType.FORMULA,soldTotal.cellType)
+                    if(product==1 && historicalStock!=null) {
+                        assertEquals(historicalStock.toDouble(),cells.getRow(5).getCell(stock).numericCellValue,0.0)
+                        assertEquals(historicalStock.toDouble(),evaluator.evaluate(stockTotal).numberValue,0.0)
+                    } else {
+                        assertEquals(CellType.BLANK,cells.getRow(5).getCell(stock).cellType)
+                        assertEquals("",evaluator.evaluate(stockTotal).stringValue)
+                    }
+                    if(product==1) assertEquals(350.0,evaluator.evaluate(soldTotal).numberValue,0.0)
+                    else assertEquals("",evaluator.evaluate(soldTotal).stringValue)
+                }
+            }
+            if(historicalStock==null) {
+                val dir=File("build/verification").apply { mkdirs() }
+                File(dir,"CALLSHEET_sales_only.xlsx").writeBytes(xlsx.toByteArray())
+            }
+        }
+    }
     @Test fun excelRecalculatesAllDailyFormulaFamilies() {
         val output=ByteArrayOutputStream(); ExcelExport.write(listOf(Layout.daily(fixture)),output)
         val dir=File("build/verification").apply { mkdirs() }; File(dir,"LHS_sample.xlsx").writeBytes(output.toByteArray())

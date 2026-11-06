@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -89,10 +90,22 @@ import id.lhspapua.domain.*
         }
     }
 }
-@Composable internal fun ReportIdentity(identity:Identity,expanded:Boolean,onExpanded:(Boolean)->Unit,onChange:(Identity)->Unit,onSave:()->Unit) {
+@Composable internal fun ReportIdentity(identity:Identity,expanded:Boolean,onExpanded:(Boolean)->Unit,onChange:(Identity)->Unit,compact:Boolean=false,onSave:()->Unit) {
     if(expanded) {
         IdentityEditor(identity,onChange=onChange)
         Button(onClick=onSave,modifier=Modifier.fillMaxWidth()) { Text("Gunakan Identitas") }
+    } else if(compact) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement=Arrangement.spacedBy(8.dp),
+            verticalAlignment=Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)) {
+                Text(identity.sales.ifBlank { "Isi nama Sales" },fontWeight=FontWeight.Bold)
+                Text(identity.displayDate(),style=MaterialTheme.typography.bodyMedium)
+            }
+            TextButton(onClick={ onExpanded(true) }) { Text("Ubah Identitas") }
+        }
     } else {
         Text(identity.sales.ifBlank { "Isi nama Sales" },fontWeight=FontWeight.Bold)
         Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {

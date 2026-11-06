@@ -96,22 +96,75 @@ class UiSmokeTest {
         compose.onNodeWithText("Tersimpan").assertExists()
         snapshot("STAGE3_VISITS")
     }
-    @Test fun tenVisitsAllowSoldAboveStockAndPreserveNumbers() {
-        newCall();click("Tambah Outlet")
-        repeat(10) { n->text("Nama Outlet","Outlet Uji ${n+1}");text("Alamat","Jayapura")
-            repeat(3) { p->text("call-$p-stock","10");text("call-$p-sold","3") }
+    @Test fun salesOnlyEditorTotalsThreeVisitsAndPreservesHistoricalStock() {
+        newCall()
+        click("Tambah Outlet")
+        for((index,quantity) in listOf(100,200,50).withIndex()) {
+            text("Nama Outlet","Outlet Uji ${index+1}")
+            text("Alamat","Jayapura")
+            for(product in Product.entries.indices) {
+                compose.onNodeWithTag("call-$product-stock").assertDoesNotExist()
+                compose.onNodeWithTag("call-$product-sold").assertExists()
+            }
+            text("call-1-sold",quantity.toString())
             click("Simpan & Tambah Outlet")
         }
-        click("Daftar Kunjungan");text("outlet-search","Outlet Uji 10");click("Edit Kunjungan")
-        text("call-0-sold","11")
-        compose.onNodeWithText("Melebihi stok").assertDoesNotExist()
+        click("Daftar Kunjungan")
+        val report=vm.state.value.call!!
+        assertEquals(350L,Calculation.calls(report,1,false))
+        assertTrue(report.activeOutlets().all { it.quantities.all { quantity->quantity.stock==null } })
+
+        val historical=report.activeOutlets().first()
+        compose.runOnIdle {
+            vm.call { current ->
+                current.copy(outlets=current.outlets.map { outlet ->
+                    if(outlet.id==historical.id) outlet.copy(quantities=outlet.quantities.replace(1,Quantity(stock=10,sold=100)))
+                    else outlet
+                })
+            }
+        }
+        saved()
+        text("outlet-search","Outlet Uji 1")
+        click("Edit Kunjungan")
+        text("call-1-sold","125")
         click("Simpan Perubahan")
-        text("outlet-search","");click("Periksa Laporan")
-        compose.onNodeWithText("Stok 100 · Jual 38").performScrollTo().assertExists()
-        click("Edit Callsheet");text("outlet-search","Outlet Uji 10");click("Hapus");click("Batal")
-        compose.onNodeWithText("10. OUTLET UJI 10").assertExists();click("Hapus")
+        saved()
+        val reopened=runBlocking { requireNotNull(vm.repository.call(report.id)) }
+        assertEquals(Quantity(stock=10,sold=125),reopened.activeOutlets().first().quantities[1])
+        text("outlet-search","")
+        click("Periksa Laporan")
+        compose.onNodeWithText("Stok 10 · Jual 375").performScrollTo().assertExists()
+        click("Edit Callsheet")
+        text("outlet-search","Outlet Uji 3")
+        click("Hapus")
+        click("Batal")
+        compose.onNodeWithText("3. OUTLET UJI 3").assertExists()
+        click("Hapus")
         compose.onNode(hasText("Hapus") and hasClickAction() and hasAnyAncestor(isDialog())).performClick()
-        saved();assertEquals(9,vm.state.value.call!!.activeOutlets().size)
+        saved()
+        assertEquals(2,vm.state.value.call!!.activeOutlets().size)
+    }
+    @Test @Config(sdk=[34],qualifiers="en-rUS-w360dp-h640dp-night")
+    fun dailyTabsUseMatchingRenderedBoundsOnSmallScreenWithLargeFonts() {
+        compose.runOnIdle {
+            compose.activity.setContent {
+                val density=LocalDensity.current
+                CompositionLocalProvider(LocalDensity provides Density(density.density,1.3f)) { LhsApp(vm) }
+            }
+            vm.newDay()
+        }
+        saved()
+        for(group in listOf("daily-section","daily-product")) {
+            val bounds=(0..2).map { compose.onNodeWithTag("$group-$it").assertIsDisplayed().fetchSemanticsNode().boundsInRoot }
+            assertTrue(bounds.maxOf { it.width } - bounds.minOf { it.width } <= 1f)
+            assertTrue(bounds.all { it.height==bounds.first().height && it.top==bounds.first().top })
+            assertEquals(bounds[1].left-bounds[0].right,bounds[2].left-bounds[1].right,1f)
+            compose.onNodeWithTag("$group-0").assertIsSelected()
+        }
+        listOf("Stok & Penjualan","Tester","Keuangan","MARTIL 12","MARTIL","HD LIGHT").forEach { label ->
+            compose.onNode(hasText(label) and hasClickAction()).assertIsDisplayed()
+        }
+        snapshot("STAGE36_DAILY_SMALL_DARK")
     }
     @Test fun automaticSoldAndManualStockInputsExportAsDraft() {
         compose.onNodeWithTag("tab-days").performClick();click("Buat Laporan Baru");saved()
@@ -128,7 +181,7 @@ class UiSmokeTest {
             text("sale-$p-G",gross.toString())
             text("sale-$p-RTL",retail.toString())
             compose.onNodeWithTag("stock-$p-sold-auto").assertTextContains("${gross+retail} BUNGKUS")
-            if(p==0)snapshot("STAGE35_PRODUCT")
+            if(p==0)snapshot("STAGE36_DAILY_LIGHT")
         }
         assertEquals(70L,Calculation.stockSold(vm.state.value.day!!,1))
         assertEquals(25L,vm.state.value.day!!.products[0].manualTg)
@@ -158,9 +211,9 @@ class UiSmokeTest {
         assertEquals(5L,vm.state.value.day!!.testers[2].manualTg)
     }
     @Test fun imeNextDoneAndRupiahPasteRetainCursorAndFinalValue() {
-        newCall();click("Tambah Outlet");text("Nama Outlet","Toko Fokus");text("call-0-stock","10")
-        compose.onNodeWithTag("call-0-stock").performImeAction()
-        compose.onNodeWithTag("call-0-sold").assertIsFocused()
+        newCall();click("Tambah Outlet");text("Nama Outlet","Toko Fokus");text("call-0-sold","10")
+        compose.onNodeWithTag("call-0-sold").performImeAction()
+        compose.onNodeWithTag("call-1-sold").assertIsFocused()
         text("call-2-sold","0");compose.onNodeWithTag("call-2-sold").performImeAction();compose.onNodeWithTag("call-2-sold").assertIsNotFocused()
         compose.runOnIdle { vm.newDay() };saved()
         click("Keuangan")
@@ -173,7 +226,7 @@ class UiSmokeTest {
     }
     @Test @Config(sdk=[34],qualifiers="en-rUS-w360dp-h640dp") fun smallScreenLargeFontAndSyntheticKeyboardUseInsetsOnce() {
         compose.runOnIdle { compose.activity.setContent { val density=LocalDensity.current;CompositionLocalProvider(LocalDensity provides Density(density.density,1.3f)) { LhsApp(vm) } } }
-        newCall();click("Tambah Outlet");text("Nama Outlet","Toko Layar Kecil");text("call-0-stock","250")
+        newCall();click("Tambah Outlet");text("Nama Outlet","Toko Layar Kecil");text("call-0-sold","250")
         compose.runOnIdle {
             val insets=androidx.core.view.WindowInsetsCompat.Builder().setInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars(),androidx.core.graphics.Insets.of(0,24,0,24)).setInsets(androidx.core.view.WindowInsetsCompat.Type.ime(),androidx.core.graphics.Insets.of(0,0,0,280)).setVisible(androidx.core.view.WindowInsetsCompat.Type.ime(),true).build()
             androidx.core.view.ViewCompat.dispatchApplyWindowInsets(compose.activity.findViewById(android.R.id.content),insets)

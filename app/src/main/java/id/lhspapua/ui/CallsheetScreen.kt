@@ -68,17 +68,17 @@ import java.util.Locale
             if(outlet.name.isNotBlank())suggestions.take(3).forEach { saved->OutletSuggestion(saved) { vm.call { it.copy(outlets=it.outlets.map { row->if(row.id==outlet.id)row.copy(name=saved.name.uppercase(Locale.ROOT),address=saved.address.uppercase(Locale.ROOT)) else row }) } } }
             TextInput("Alamat",outlet.address,true) { address->vm.call { it.copy(outlets=it.outlets.map { row->if(row.id==outlet.id)row.copy(address=address) else row }) } }
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                Text("PRODUK",Modifier.weight(1.5f),style=MaterialTheme.typography.labelMedium);Text("STOK",Modifier.weight(1f),style=MaterialTheme.typography.labelMedium);Text("JUAL",Modifier.weight(1f),style=MaterialTheme.typography.labelMedium)
+                Text("PRODUK",Modifier.weight(1f),style=MaterialTheme.typography.labelMedium)
+                Text("JUAL (BUNGKUS)",Modifier.weight(1f),style=MaterialTheme.typography.labelMedium)
             }
             Product.entries.forEachIndexed { p,product->
                 val q=outlet.quantities[p]
                 Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                    Text(product.label,Modifier.weight(1.5f),style=MaterialTheme.typography.labelLarge,softWrap=true)
-                    Numeric("Stok ${product.label}",q.stock,modifier=Modifier.weight(1f),compact=true,tag="call-$p-stock") { n->vm.call { report->report.copy(outlets=report.outlets.map { o->if(o.id==outlet.id)o.copy(quantities=o.quantities.replace(p,o.quantities[p].copy(stock=n))) else o }) } }
+                    Text(product.label,Modifier.weight(1f),style=MaterialTheme.typography.labelLarge,softWrap=true)
                     Numeric("Jual ${product.label}",q.sold,modifier=Modifier.weight(1f),compact=true,tag="call-$p-sold",done=p==2) { n->vm.call { report->report.copy(outlets=report.outlets.map { o->if(o.id==outlet.id)o.copy(quantities=o.quantities.replace(p,o.quantities[p].copy(sold=n))) else o }) } }
                 }
             }
-            Text("Jumlah dalam bungkus. Kolom yang tidak diisi boleh dibiarkan kosong.",style=MaterialTheme.typography.bodySmall)
+            Text("Isi jumlah untuk produk yang terjual.",style=MaterialTheme.typography.bodySmall)
         }
     }
 }

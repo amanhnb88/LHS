@@ -56,6 +56,10 @@ class NativeFlowTest {
         address.performTextInputSelection(androidx.compose.ui.text.TextRange(6))
         address.performTextInput("aimas ")
         address.assertTextContains("JALAN AIMAS SORONG")
+        for(product in Product.entries.indices) {
+            compose.onNodeWithTag("call-$product-stock").assertDoesNotExist()
+            compose.onNodeWithTag("call-$product-sold").assertExists()
+        }
         val field=compose.onNodeWithTag("call-2-sold").performScrollTo()
         field.performTextReplacement("200")
         field.performTouchInput { click() }
@@ -169,6 +173,15 @@ class NativeFlowTest {
         fun saved()=compose.waitUntil(20000) { vm.state.value.let { it.pending==0 && !it.busy && !it.saveFailed } }
         val id=vm.state.value.day!!.id
 
+        for(group in listOf("daily-section","daily-product")) {
+            val bounds=(0..2).map { compose.onNodeWithTag("$group-$it").assertIsDisplayed().fetchSemanticsNode().boundsInRoot }
+            assertTrue(bounds.maxOf { it.width } - bounds.minOf { it.width } <= 1f)
+            assertTrue(bounds.all { it.height==bounds.first().height && it.top==bounds.first().top })
+            compose.onNodeWithTag("$group-0").assertIsSelected()
+        }
+        listOf("do","sold-auto","sample","bonus","tg").forEach { suffix ->
+            compose.onNodeWithTag("stock-0-$suffix").assertExists()
+        }
         val delivery=field("stock-0-do")
         delivery.performTouchInput { click() }
         compose.waitUntil(15000) {

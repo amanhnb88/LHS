@@ -1,7 +1,10 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class,androidx.compose.foundation.ExperimentalFoundationApi::class)
 package id.lhspapua.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
@@ -15,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -24,11 +28,13 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.*
 import androidx.compose.ui.unit.dp
 import id.lhspapua.domain.*
@@ -110,6 +116,46 @@ internal val LocalInputCommit=staticCompositionLocalOf<()->Unit> { {} }
     TextButton(onClick={ show=true }) { Text(label) }
     if(show)Confirmation(label,message,label,{ show=false;action() },{ show=false })
 }
+@Composable internal fun EqualTabs(
+    labels:List<String>,selected:Int,tagPrefix:String,secondary:Boolean=false,onSelect:(Int)->Unit
+) {
+    val colors=MaterialTheme.colorScheme
+    val shape=MaterialTheme.shapes.small
+    Row(
+        Modifier.fillMaxWidth().height(IntrinsicSize.Min).selectableGroup(),
+        horizontalArrangement=Arrangement.spacedBy(6.dp)
+    ) {
+        labels.forEachIndexed { index,label ->
+            val active=index==selected
+            Surface(
+                modifier=Modifier.weight(1f).heightIn(min=48.dp).fillMaxHeight().clip(shape)
+                    .selectable(selected=active,role=Role.Tab,onClick={ onSelect(index) })
+                    .testTag("$tagPrefix-$index"),
+                shape=shape,
+                color=when {
+                    !active -> colors.surface
+                    secondary -> colors.secondaryContainer
+                    else -> colors.primaryContainer
+                },
+                contentColor=when {
+                    !active -> colors.onSurfaceVariant
+                    secondary -> colors.onSecondaryContainer
+                    else -> colors.onPrimaryContainer
+                },
+                border=if(active) null else BorderStroke(1.dp,colors.outlineVariant)
+            ) {
+                Box(Modifier.padding(horizontal=6.dp,vertical=6.dp),contentAlignment=Alignment.Center) {
+                    Text(
+                        label,
+                        textAlign=TextAlign.Center,
+                        style=if(secondary) MaterialTheme.typography.labelMedium else MaterialTheme.typography.labelLarge
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable internal fun ProductTabs(selected:Int,onSelect:(Int)->Unit) {
     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) { Product.entries.forEachIndexed { p,product->
         FilterChip(selected=selected==p,onClick={ onSelect(p) },label={ Text(product.label,style=MaterialTheme.typography.labelMedium) },modifier=Modifier.weight(1f))
