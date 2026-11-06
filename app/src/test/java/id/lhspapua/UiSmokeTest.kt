@@ -137,7 +137,9 @@ class UiSmokeTest {
         assertEquals(Quantity(stock=10,sold=125),reopened.activeOutlets().first().quantities[1])
         text("outlet-search","")
         click("Periksa Laporan")
-        compose.onNodeWithText("Stok 10 · Jual 375").performScrollTo().assertExists()
+        compose.onNodeWithTag("call-sold-1").assertTextEquals("375 bungkus")
+        compose.onNodeWithTag("call-total-sold").assertTextEquals("375 BUNGKUS")
+        compose.onNodeWithText("Stok",substring=true).assertDoesNotExist()
         click("Edit Callsheet")
         text("outlet-search","Outlet Uji 3")
         click("Hapus")
@@ -147,6 +149,34 @@ class UiSmokeTest {
         compose.onNode(hasText("Hapus") and hasClickAction() and hasAnyAncestor(isDialog())).performClick()
         saved()
         assertEquals(2,vm.state.value.call!!.activeOutlets().size)
+    }
+    @Test fun callsheetReviewCombinesProductsAndDistinguishesBlankFromZero() {
+        fun review(vararg quantities:List<Quantity>) {
+            val report=CallReport(
+                completed=true,
+                outlets=quantities.mapIndexed { index,row -> Outlet(name="TOKO ${index+1}",quantities=row) }
+            )
+            compose.runOnIdle { vm.open(report) }
+            compose.onNodeWithText("Periksa Laporan").assertExists()
+            compose.onNodeWithText("Stok",substring=true).assertDoesNotExist()
+        }
+        review(
+            listOf(Quantity(stock=25,sold=200),Quantity(sold=350),Quantity(sold=100)),
+            listOf(Quantity(sold=300),Quantity(stock=12,sold=300),Quantity(sold=200))
+        )
+        listOf("500 bungkus","650 bungkus","300 bungkus").forEachIndexed { index,value ->
+            compose.onNodeWithTag("call-sold-$index").assertTextEquals(value)
+        }
+        compose.onNodeWithTag("call-total-sold").assertTextEquals("1.450 BUNGKUS")
+        snapshot("STAGE38_CALL_REVIEW")
+
+        review(listOf(Quantity(stock=25),Quantity(),Quantity()))
+        repeat(3) { compose.onNodeWithTag("call-sold-$it").assertTextEquals("—") }
+        compose.onNodeWithTag("call-total-sold").assertTextEquals("—")
+        review(listOf(Quantity(sold=0),Quantity(),Quantity()))
+        compose.onNodeWithTag("call-sold-0").assertTextEquals("0 bungkus")
+        compose.onNodeWithTag("call-sold-1").assertTextEquals("—")
+        compose.onNodeWithTag("call-total-sold").assertTextEquals("0 BUNGKUS")
     }
     @Test @Config(sdk=[34],qualifiers="en-rUS-w360dp-h640dp-night")
     fun dailyTabsUseMatchingRenderedBoundsOnSmallScreenWithLargeFonts() {
@@ -318,7 +348,12 @@ class UiSmokeTest {
         compose.waitUntil(15000) { compose.onAllNodes(hasTestTag("sales-period-1") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithTag("sales-period-2").performClick()
         compose.waitUntil(15000) { compose.onAllNodes(hasTestTag("sales-period-2") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
-        snapshot("STAGE37_DASHBOARD")
+        compose.onNodeWithTag("sales-bars").assertExists()
+        listOf("Belum ada draf","Lanjutkan Draft","Lanjutkan Laporan","Tanpa batang = belum ada omzet tercatat.").forEach {
+            compose.onNodeWithText(it).assertDoesNotExist()
+        }
+        compose.onNodeWithTag("tab-drafts").assertIsDisplayed()
+        snapshot("STAGE38_DASHBOARD")
 
         compose.onNodeWithTag("tab-drafts").performClick().assertIsSelected()
         compose.onNodeWithTag("report-${draftCall.id}").assertExists()
@@ -329,7 +364,12 @@ class UiSmokeTest {
         compose.onNodeWithTag("report-filter-2").performClick()
         compose.onNodeWithTag("report-${draftCall.id}").assertDoesNotExist()
         compose.onNodeWithTag("report-filter-0").performClick()
-        snapshot("STAGE37_DRAFTS")
+        snapshot("STAGE38_DRAFTS")
+        for((id,route) in listOf(draftCall.id to "call",draftDay.id to "day")) {
+            compose.onNode(hasText("Lanjutkan") and hasAnyAncestor(hasTestTag("report-$id"))).performClick()
+            awaitState("Draft opened from its own tab") { vm.state.value.screen==route }
+            compose.onNodeWithTag("tab-drafts").performClick()
+        }
         compose.onNodeWithTag("tab-history").performClick().assertIsSelected()
         compose.onNodeWithTag("report-${finalCall.id}").assertExists()
         compose.onNodeWithTag("report-${finalDay.id}").assertExists()

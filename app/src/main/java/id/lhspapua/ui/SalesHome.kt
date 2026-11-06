@@ -16,10 +16,8 @@ import id.lhspapua.domain.*
 import java.math.BigInteger
 import java.time.format.DateTimeFormatter
 
-@Composable internal fun HomeScreen(state:UiState,vm:LhsViewModel) {
+@Composable internal fun HomeScreen(vm:LhsViewModel) {
     val dashboard by vm.dashboard.collectAsStateWithLifecycle()
-    val reports=reportEntries(state,vm)
-    val latest=remember(reports) { reports.filter { it.draft }.minWithOrNull(recentDrafts) }
     ScrollPage {
         Text("Ringkasan Penjualan",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
         dashboard?.let { data ->
@@ -49,15 +47,6 @@ import java.time.format.DateTimeFormatter
                 }
             }
         }
-        if(latest!=null) {
-            Panel("Lanjutkan Draft") {
-                Text("${latest.type} · ${latest.identity.displayDate()} · ${latest.sales}")
-                TextButton(onClick={
-                    vm.navigate("drafts")
-                    latest.open()
-                },enabled=!state.busy) { Text("Lanjutkan Laporan") }
-            }
-        } else Text("Belum ada draf",style=MaterialTheme.typography.bodyMedium)
     }
 }
 
@@ -110,5 +99,4 @@ import java.time.format.DateTimeFormatter
     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
         labels.forEach { Text(it.date.format(axisDate),style=MaterialTheme.typography.labelSmall) }
     }
-    Text("Tanpa batang = belum ada omzet tercatat.",style=MaterialTheme.typography.bodySmall)
 }

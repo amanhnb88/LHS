@@ -4,9 +4,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import id.lhspapua.domain.*
 import id.lhspapua.export.ExportFormat
@@ -31,12 +34,17 @@ import java.io.File
         SaveStatus(state,vm)
         if(call!=null) {
             Text("${call.activeOutlets().size} outlet",fontWeight=FontWeight.Bold)
-            Product.entries.forEachIndexed { p,product->
-                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
-                Text(product.label,fontWeight=FontWeight.Bold)
-                Text("Stok ${runCatching { Calculation.calls(call,p,true)?.let(Calculation::grouped) ?: "—" }.getOrDefault("—")} · Jual ${runCatching { Calculation.calls(call,p,false)?.let(Calculation::grouped) ?: "—" }.getOrDefault("—")}",style=MaterialTheme.typography.bodySmall)
-                }
+            val sold=remember(call) {
+                Product.entries.indices.map { product -> runCatching { Calculation.calls(call,product,false) } }
             }
+            val quantities=sold.mapNotNull { it.getOrNull() }
+            // Each product total is bounded by Calculation.MAX. Three valid totals fit in a Long.
+            val total=quantities.takeIf { it.isNotEmpty() && sold.all { result -> result.isSuccess } }?.sum()
+            Product.entries.forEachIndexed { index,product ->
+                CallsheetSoldRow(product.label,sold[index].getOrNull(),"bungkus","call-sold-$index")
+            }
+            HorizontalDivider()
+            CallsheetSoldRow("TOTAL TERJUAL",total,"BUNGKUS","call-total-sold",emphasized=true)
             TextButton(onClick=onEdit) { Text("Edit Callsheet") }
         } else if(day!=null) {
             Product.entries.forEachIndexed { p,product->
@@ -99,4 +107,22 @@ import java.io.File
     }
     if(finish)Confirmation("Selesaikan laporan?",if(call!=null)"Pastikan kunjungan dan angka sudah sesuai." else "Pastikan angka sudah sesuai. Laporan harian yang selesai dapat menjadi sumber stok berikutnya.","Selesaikan",{ finish=false;if(call!=null)vm.completeCall {} else vm.finalizeDay {} },{ finish=false })
     if(reopen)Confirmation("Buka kembali laporan?",if(independent) "Laporan akan dibuka sebagai draf untuk diedit." else "Perubahan stok dapat memengaruhi laporan berikutnya. Laporan final terkait akan ditandai untuk diperiksa.","Buka kembali",{ reopen=false;vm.reopen(onEdit) },{ reopen=false })
+}
+
+@Composable private fun CallsheetSoldRow(label:String,quantity:Long?,unit:String,tag:String,emphasized:Boolean=false) {
+    val style=if(emphasized)MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement=Arrangement.spacedBy(8.dp),
+        verticalAlignment=Alignment.CenterVertically
+    ) {
+        Text(label,Modifier.weight(1f),style=style,fontWeight=FontWeight.Bold)
+        Text(
+            quantity?.let { "${Calculation.grouped(it)} $unit" } ?: "—",
+            Modifier.weight(1f).testTag(tag),
+            style=style,
+            fontWeight=if(emphasized)FontWeight.Bold else FontWeight.Normal,
+            textAlign=TextAlign.End
+        )
+    }
 }

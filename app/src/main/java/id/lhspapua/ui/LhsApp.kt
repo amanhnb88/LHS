@@ -177,7 +177,7 @@ import java.io.File
                         }
                         pages.SaveableStateProvider(page) {
                             when(state.screen) {
-                                "home" -> HomeScreen(state,vm)
+                                "home" -> HomeScreen(vm)
                                 "calls","days" -> ReportHub(state.screen=="days",vm)
                                 "call" -> state.call?.let { CallsheetScreen(it,state,vm,::saveFiles,::share) }
                                 "day" -> state.day?.let {

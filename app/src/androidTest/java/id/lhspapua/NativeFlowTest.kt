@@ -32,7 +32,7 @@ class NativeFlowTest {
     @get:Rule val compose=createAndroidComposeRule<MainActivity>()
     private fun click(text:String) { val node=compose.onNode(hasText(text) and hasClickAction());runCatching { node.performScrollTo() };node.performClick() }
     private fun tab(route:String)=compose.onNodeWithTag("tab-$route")
-    private fun start()=compose.waitUntil(15000) { compose.onAllNodesWithText("Belum ada draf").fetchSemanticsNodes().isNotEmpty() || compose.onAllNodesWithText("Lanjutkan Laporan").fetchSemanticsNodes().isNotEmpty() }
+    private fun start()=compose.waitUntil(15000) { compose.onAllNodesWithText("Ringkasan Penjualan").fetchSemanticsNodes().isNotEmpty() }
     private fun back()=InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
     private fun imeVisible()=compose.runOnIdle {
         ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime())==true
@@ -87,7 +87,9 @@ class NativeFlowTest {
         back()
         compose.onNodeWithText("1. TOKO UJI").performScrollTo().assertExists()
         click("Periksa Laporan")
-        compose.onNodeWithText("Stok — · Jual 200").assertExists()
+        compose.onNodeWithTag("call-sold-2").assertTextEquals("200 bungkus")
+        compose.onNodeWithTag("call-total-sold").assertTextEquals("200 BUNGKUS")
+        compose.onNodeWithText("Stok",substring=true).assertDoesNotExist()
         click("Pratinjau Draf PDF")
         compose.waitUntil(15000) { compose.onAllNodesWithContentDescription("Halaman 1 dari 1").fetchSemanticsNodes().isNotEmpty() }
         back()
@@ -242,7 +244,10 @@ class NativeFlowTest {
         tab("days").assertIsSelected()
         tab("home").performClick()
         compose.waitUntil(15000) { vm.state.value.days.any { it.id==id } }
-        click("Lanjutkan Laporan")
+        compose.onNodeWithText("Lanjutkan Laporan").assertDoesNotExist()
+        tab("drafts").performClick()
+        compose.onNodeWithTag("report-filter-2").performClick()
+        compose.onNode(hasText("Lanjutkan") and hasAnyAncestor(hasTestTag("report-$id"))).performClick()
         assertEquals(id,vm.state.value.day!!.id)
         click("Stok & Penjualan")
         hideIme()
