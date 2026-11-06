@@ -41,7 +41,8 @@ fun CallReport.activeOutlets() = outlets.filterNot { it.untouched() }
     val stockSourceId: String? = null, val sourceRevision: Long? = null,
     val revision: Long = 0, val stockStale: Boolean = false, val stockIssue: String = "",
     val openingNote: String = "", val finalizedAt: String? = null, val wasFinalized: Boolean = false,
-    val createdAt: String? = null, val updatedAt: String? = null) {
+    val createdAt: String? = null, val updatedAt: String? = null,
+    val automaticMadeBy: Boolean = false, val callsheetLink: CallsheetLink? = null) {
     val usesLedger: Boolean get() = formatVersion == 2
     val independent: Boolean get() = formatVersion in 3..4
     val automaticSold: Boolean get() = formatVersion == 4
@@ -51,7 +52,15 @@ fun CallReport.activeOutlets() = outlets.filterNot { it.untouched() }
 @Serializable enum class OpeningMode { AUTO, MANUAL }
 @Serializable data class StockOwner(val id: String = UUID.randomUUID().toString(), val name: String)
 @Serializable data class SavedOutlet(val name: String, val address: String)
-@Serializable data class Settings(val profile: Identity = Identity(), val prices: List<List<Long?>> = OfficialPrices.values, val rules: Rules = Rules(), val outlets: List<SavedOutlet> = emptyList(), val owners: List<StockOwner> = emptyList())
+@Serializable data class LhsFeatureSettings(
+    val stockEnabled: Boolean = false,
+    val testerEnabled: Boolean = false,
+    val financeEnabled: Boolean = false
+)
+@Serializable enum class IntegrationMode { MANDIRI, TERINTEGRASI }
+@Serializable data class CallsheetLink(val sourceId: String, val fingerprint: String, val confirmedAt: String)
+@Serializable data class Settings(val profile: Identity = Identity(), val prices: List<List<Long?>> = OfficialPrices.values, val rules: Rules = Rules(), val outlets: List<SavedOutlet> = emptyList(), val owners: List<StockOwner> = emptyList(),
+    val lhsFeatures: LhsFeatureSettings = LhsFeatureSettings(), val integrationMode: IntegrationMode = IntegrationMode.MANDIRI)
 @Serializable data class Backup(val version: Int = 2, val calls: List<CallReport>, val daily: List<DailyReport>, val settings: Settings)
 
 

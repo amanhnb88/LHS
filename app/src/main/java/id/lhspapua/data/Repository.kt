@@ -55,6 +55,16 @@ class Repository(private val context: Context, private val db: LhsDatabase = Lhs
     suspend fun allDaily() = dao.allDaily().map { json.decodeFromString<DailyReport>(it.payload) }
     suspend fun saveDay(report:DailyReport):StockLedger.Result = db.withTransaction {
         val old=daily(report.id)
+        require(old?.status!=ReportStatus.FINAL) { "Buka kembali laporan sebelum menyimpan perubahan." }
+        require(old==null || report.status==ReportStatus.DRAFT) { "Gunakan Selesaikan Laporan untuk finalisasi." }
+        val edit=report.copy(
+            callsheetLink=old?.callsheetLink,
+            automaticMadeBy=old?.automaticMadeBy ?: report.automaticMadeBy
+        )
+        persistDay(if(edit.automaticMadeBy)edit.copy(finance=edit.finance.copy(madeBy=edit.identity.uppercaseFields().sales)) else edit,old)
+    }
+
+    private suspend fun persistDay(report:DailyReport,old:DailyReport?):StockLedger.Result {
         val r=if(old==null) report.copy(updatedAt=report.updatedAt ?: report.createdAt?.let { now() }) else {
             val sameContent=report.copy(
                 createdAt=old.createdAt,updatedAt=old.updatedAt,finalizedAt=old.finalizedAt,
@@ -64,25 +74,47 @@ class Repository(private val context: Context, private val db: LhsDatabase = Lhs
         }
         if(r.independent) {
             if(r!=old)writeDay(r)
-            return@withTransaction StockLedger.Result(listOf(r),emptyList())
+            return StockLedger.Result(listOf(r),emptyList())
         }
         val before=allDaily()
         val result=StockLedger.reconcile(before,r)
         val existing=before.associateBy { it.id }
-        result.reports.filter { existing[it.id]!=it }.forEach { writeDay(it) }; result
+        result.reports.filter { existing[it.id]!=it }.forEach { writeDay(it) }; return result
     }
     suspend fun finalizeDay(id:String):StockLedger.Result = db.withTransaction {
         val existing=daily(id) ?: error("Laporan tidak ditemukan.")
         if(existing.status==ReportStatus.FINAL)return@withTransaction StockLedger.Result(listOf(existing),emptyList())
         val prepared=saveDay(existing).reports.first { it.id==id }
-        val errors=Calculation.errors(prepared)
+        val link=prepared.callsheetLink
+        val matching=link?.let {
+            SalesReconciliation.review(prepared,call(it.sourceId),SalesReconciliation.claimed(it.sourceId,id,allDaily()))
+        }
+        val errors=Calculation.errors(prepared)+matching?.problems.orEmpty()
         require(errors.isEmpty()) { errors.joinToString("\n") }
-        saveDay(prepared.copy(status=ReportStatus.FINAL,wasFinalized=true,finalizedAt=now()))
+        persistDay(prepared.copy(status=ReportStatus.FINAL,wasFinalized=true,finalizedAt=now()),prepared)
     }
     suspend fun reopen(id:String):StockLedger.Result = db.withTransaction {
         val r=daily(id) ?: error("Laporan tidak ditemukan.")
-        saveDay(r.copy(status=ReportStatus.DRAFT,finalizedAt=null))
+        persistDay(r.copy(status=ReportStatus.DRAFT,finalizedAt=null),r)
     }
+    suspend fun changeCallsheetLink(id:String,sourceId:String?,fingerprint:String?):DailyReport = db.withTransaction {
+        val report=daily(id) ?: error("LHS tidak ditemukan.")
+        require(report.status==ReportStatus.DRAFT) { "Buka kembali LHS sebelum mengubah tautan." }
+        val link=sourceId?.let {
+            require(report.callsheetLink?.sourceId==it || settings().integrationMode==IntegrationMode.TERINTEGRASI) {
+                "Aktifkan Mode Terintegrasi di Pengaturan."
+            }
+            val source=call(it) ?: error("Callsheet sumber tidak tersedia.")
+            require(source.completed) { "Callsheet sumber belum Final." }
+            require(SalesReconciliation.matchesIdentity(report.identity,source.identity)) { "Identitas laporan tidak sesuai." }
+            require(!SalesReconciliation.claimed(it,id,allDaily())) { "Callsheet sudah ditautkan ke LHS lain." }
+            val current=SalesReconciliation.fingerprint(source)
+            require(current==fingerprint) { "Callsheet berubah sejak ditampilkan. Periksa dan konfirmasi ulang." }
+            CallsheetLink(it,current,now())
+        }
+        persistDay(report.copy(callsheetLink=link),report).reports.first { it.id==id }
+    }
+
     suspend fun call(id: String) = dao.call(id)?.let { json.decodeFromString<CallReport>(it.payload) }
     suspend fun daily(id: String) = dao.day(id)?.let { json.decodeFromString<DailyReport>(it.payload) }
     suspend fun deleteCall(id:String,draftOnly:Boolean=false) = db.withTransaction {
@@ -172,6 +204,8 @@ class Repository(private val context: Context, private val db: LhsDatabase = Lhs
                 } }) }
                 db.withTransaction { data.calls.forEach { writeCall(it) }; restored.forEach { writeDay(it) }; save(data.settings)
                     val all=allDaily()
+                    val linked=all.mapNotNull { it.callsheetLink?.sourceId }
+                    require(linked.size==linked.toSet().size) { "Backup bertentangan dengan tautan Callsheet yang sudah tersimpan." }
                     all.firstOrNull { it.usesLedger }?.let { changed ->
                         StockLedger.reconcile(all,changed).reports.filter { it.usesLedger }.forEach { writeDay(it) }
                     }

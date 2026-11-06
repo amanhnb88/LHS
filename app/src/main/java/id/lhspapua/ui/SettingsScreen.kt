@@ -5,7 +5,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import id.lhspapua.domain.*
@@ -13,7 +17,15 @@ import id.lhspapua.domain.*
 @Composable internal fun SettingsScreen(section:String,select:(String)->Unit,state:UiState,vm:LhsViewModel,backup:()->Unit,restore:()->Unit) {
     when(section) {
         "" -> {
-            listOf(Triple("profil","Profil Sales","Identitas yang sering dipakai."),Triple("harga","Harga Produk","Harga resmi Grosir dan Retail."),Triple("outlet","Daftar Outlet","Nama dan alamat outlet tersimpan."),Triple("backup","Backup Data","Simpan salinan laporan dan lampiran."),Triple("lanjutan","Pengaturan Lanjutan","Pengaturan untuk laporan lama.")).forEach { (key,title,description)->MainCard(title,description) { select(key) } }
+            listOf(
+                Triple("profil","Profil Sales","Identitas yang sering dipakai."),
+                Triple("harga","Harga Produk","Harga resmi Grosir dan Retail."),
+                Triple("outlet","Daftar Outlet","Nama dan alamat outlet tersimpan."),
+                Triple("fitur-lhs","Pengaturan Fitur LHS","Atur input yang dapat digunakan dalam Laporan Harian."),
+                Triple("integrasi","Integrasi Laporan","Hubungkan hasil penjualan Callsheet dengan Laporan Harian."),
+                Triple("backup","Backup Data","Simpan salinan laporan dan lampiran."),
+                Triple("lanjutan","Pengaturan Lanjutan","Pengaturan untuk laporan lama.")
+            ).forEach { (key,title,description)->MainCard(title,description) { select(key) } }
         }
         "profil" -> {
             Text("Profil Sales",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
@@ -40,9 +52,45 @@ import id.lhspapua.domain.*
             OutlinedButton(onClick=restore,modifier=Modifier.fillMaxWidth()) { Text("Pulihkan Backup ZIP") }
             ConfirmButton("Bersihkan lampiran tidak terpakai","Hapus hanya file lampiran yang sudah tidak dipakai oleh laporan?") { vm.cleanup() }
         }
+        "fitur-lhs" -> LhsFeatureOptions(state.settings.lhsFeatures,vm)
+        "integrasi" -> {
+            Text("Integrasi Laporan",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+            Text("Hubungkan hasil penjualan Callsheet dengan Laporan Harian.")
+            val modes=IntegrationMode.entries
+            EqualTabs(listOf("Mode Mandiri","Mode Terintegrasi"),state.settings.integrationMode.ordinal,"integration-mode") { index ->
+                vm.settings { it.copy(integrationMode=modes[index]) }
+            }
+            Text(if(state.settings.integrationMode==IntegrationMode.MANDIRI)
+                "Callsheet dan LHS diisi terpisah. Tautan yang sudah ada tetap berlaku sampai dilepas."
+                else "LHS menawarkan Callsheet Final yang sesuai. Anda memilih dan mengonfirmasi sumber. Grosir dan Retail tetap diisi di LHS.")
+        }
         "lanjutan" -> AdvancedSettings(state.settings.rules,vm)
     }
 }
+@Composable private fun LhsFeatureOptions(features:LhsFeatureSettings,vm:LhsViewModel) {
+    Text("Pengaturan Fitur LHS",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+    Text("Atur input yang dapat digunakan dalam Laporan Harian.")
+    FeatureSwitch("Input Stok","feature-stock",features.stockEnabled) { enabled ->
+        vm.settings { it.copy(lhsFeatures=it.lhsFeatures.copy(stockEnabled=enabled)) }
+    }
+    FeatureSwitch("Input Tester","feature-tester",features.testerEnabled) { enabled ->
+        vm.settings { it.copy(lhsFeatures=it.lhsFeatures.copy(testerEnabled=enabled)) }
+    }
+    FeatureSwitch("Input Keuangan","feature-finance",features.financeEnabled) { enabled ->
+        vm.settings { it.copy(lhsFeatures=it.lhsFeatures.copy(financeEnabled=enabled)) }
+    }
+}
+
+@Composable private fun FeatureSwitch(label:String,tag:String,checked:Boolean,change:(Boolean)->Unit) {
+    Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+        Text(label,Modifier.weight(1f))
+        Switch(
+            checked=checked,onCheckedChange=change,
+            modifier=Modifier.testTag(tag).semantics { contentDescription=label }
+        )
+    }
+}
+
 @Composable internal fun AdvancedSettings(current:Rules,vm:LhsViewModel) {
     var rules by remember(current) { mutableStateOf(current) }
     var confirm by remember { mutableStateOf(false) }

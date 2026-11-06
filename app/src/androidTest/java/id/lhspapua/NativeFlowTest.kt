@@ -20,6 +20,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import id.lhspapua.domain.Calculation
+import id.lhspapua.domain.LhsFeatureSettings
 import id.lhspapua.domain.Product
 import id.lhspapua.domain.untouched
 import id.lhspapua.ui.LhsViewModel
@@ -184,6 +185,14 @@ class NativeFlowTest {
         listOf("do","sold-auto","sample","bonus","tg").forEach { suffix ->
             compose.onNodeWithTag("stock-0-$suffix").assertExists()
         }
+        compose.runOnIdle { vm.settings { it.copy(lhsFeatures=LhsFeatureSettings()) } }
+        saved()
+        val disabledDelivery=field("stock-0-do").assertIsNotEnabled()
+        disabledDelivery.performTouchInput { click() }
+        disabledDelivery.assertIsNotFocused()
+        assertFalse(imeVisible())
+        compose.runOnIdle { vm.settings { it.copy(lhsFeatures=LhsFeatureSettings(true,true,true)) } }
+        saved()
         val delivery=field("stock-0-do")
         delivery.performTouchInput { click() }
         compose.waitUntil(15000) {

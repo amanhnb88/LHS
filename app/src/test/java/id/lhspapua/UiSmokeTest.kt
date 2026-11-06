@@ -201,6 +201,8 @@ class UiSmokeTest {
         snapshot("STAGE36_DAILY_SMALL_DARK")
     }
     @Test fun automaticSoldAndManualStockInputsExportAsDraft() {
+        compose.runOnIdle { vm.settings { it.copy(lhsFeatures=LhsFeatureSettings(true,true,true)) } }
+        saved()
         compose.onNodeWithTag("tab-days").performClick();click("Buat Laporan Baru");saved()
         val quantities = listOf(10 to 20,20 to 50,10 to 10)
         quantities.forEachIndexed { p,(gross,retail) ->
@@ -255,6 +257,7 @@ class UiSmokeTest {
         text("call-2-sold","0");compose.onNodeWithTag("call-2-sold").performImeAction();compose.onNodeWithTag("call-2-sold").assertIsNotFocused()
         compose.runOnIdle { vm.newDay() };saved()
         click("Keuangan")
+        compose.runOnIdle { vm.settings { it.copy(lhsFeatures=LhsFeatureSettings(financeEnabled=true)) } }
         val balance = compose.onNodeWithTag("Saldo Sebelum").performScrollTo()
         balance.performTextReplacement("Rp 14.500")
         saved();assertEquals(14500L,vm.state.value.day!!.finance.previous)
@@ -391,6 +394,85 @@ class UiSmokeTest {
         compose.onNodeWithTag("report-${finalDay.id}").assertExists()
         compose.onNodeWithTag("report-${draftDay.id}").assertDoesNotExist()
     }
+    @Test fun optionalFeaturesDefaultOffAndPreserveValuesAndNewAuthor() {
+        compose.onNodeWithContentDescription("Pengaturan").performClick()
+        click("Pengaturan Fitur LHS")
+        listOf("stock","tester","finance").forEach { compose.onNodeWithTag("feature-$it").assertIsOff() }
+        compose.runOnIdle { vm.newDay();vm.updateIdentity(vm.state.value.day!!.identity.copy(sales="Maikel")) }
+        saved()
+        val id=vm.state.value.day!!.id
+        listOf("do","sample","bonus","tg").forEach { compose.onNodeWithTag("stock-0-$it").assertIsNotEnabled() }
+        compose.onNodeWithTag("sale-0-G").assertIsEnabled()
+        compose.onNodeWithTag("sale-0-RTL").assertIsEnabled()
+        click("Tester")
+        repeat(3) { product ->
+            listOf("do","sample","tg").forEach { compose.onNodeWithTag("tester-$product-$it").assertIsNotEnabled() }
+        }
+        click("Keuangan")
+        listOf("Saldo Sebelum","Piutang","Pelunasan","Transfer","Pengeluaran","Saldo Akhir").forEach {
+            compose.onNodeWithTag(it).assertIsNotEnabled()
+        }
+        compose.onNodeWithTag("Keterangan").assertIsEnabled()
+        compose.onNodeWithTag("Dibuat Oleh").assertIsNotEnabled().assertTextContains("MAIKEL")
+        text("Keterangan","tetap aktif")
+        compose.runOnIdle { vm.updateIdentity(vm.state.value.day!!.identity.copy(sales="Rani")) }
+        compose.onNodeWithTag("Dibuat Oleh").assertTextContains("RANI")
+        saved()
+        assertEquals("RANI",runBlocking { vm.repository.daily(id) }!!.finance.madeBy)
+
+        compose.onNodeWithTag("tab-home").performClick()
+        compose.onNodeWithContentDescription("Pengaturan").performClick()
+        click("Pengaturan Fitur LHS")
+        compose.onNodeWithTag("feature-finance").performClick().assertIsOn()
+        compose.onNodeWithTag("feature-tester").assertIsOff()
+        compose.onNodeWithTag("feature-stock").assertIsOff()
+        saved()
+        compose.runOnIdle { vm.open(vm.state.value.day!!) }
+        compose.onNodeWithTag("Saldo Sebelum").assertIsEnabled()
+        text("Saldo Sebelum","1000")
+        compose.runOnIdle { vm.settings { it.copy(lhsFeatures=LhsFeatureSettings()) } }
+        saved()
+        compose.onNodeWithTag("Saldo Sebelum").assertIsNotEnabled().assertTextContains("1.000")
+        assertEquals(1000L,runBlocking { vm.repository.daily(id) }!!.finance.previous)
+        snapshot("STAGE39_DISABLED_FIELDS")
+    }
+
+    @Test fun integrationOffersFinalCandidatesAndRequiresExplicitConfirmation() {
+        val identity=Identity(sales="MAIKEL",area="SORONG",route="A")
+        fun call(sold:Long,final:Boolean=true)=CallReport(identity=identity,completed=final,
+            outlets=listOf(Outlet(quantities=listOf(Quantity(sold=0),Quantity(sold=sold),Quantity(sold=0)))))
+        val first=call(650)
+        val second=call(700)
+        val sourceDraft=call(500,false)
+        val day=newDaily(identity)
+        runBlocking {
+            vm.repository.save(first)
+            vm.repository.save(second)
+            vm.repository.save(sourceDraft)
+            vm.repository.save(day)
+        }
+        awaitState("Callsheet choices persisted") { vm.state.value.calls.size==3 }
+        compose.runOnIdle { vm.open(day) }
+        compose.onNodeWithText("Hubungkan Callsheet").assertDoesNotExist()
+        compose.runOnIdle { vm.settings { it.copy(integrationMode=IntegrationMode.TERINTEGRASI) } }
+        saved()
+        click("Hubungkan Callsheet")
+        compose.onNodeWithTag("call-source-${second.id}").assertExists()
+        compose.onNodeWithTag("call-source-${sourceDraft.id}").assertDoesNotExist()
+        compose.onNodeWithTag("call-source-${first.id}").performClick()
+        compose.onNodeWithText("Hubungkan Callsheet dengan LHS?").assertExists()
+        assertNull(runBlocking { vm.repository.daily(day.id) }!!.callsheetLink)
+        click("Hubungkan")
+        awaitState("Link confirmed") { vm.state.value.day?.callsheetLink?.sourceId==first.id }
+        assertTrue(vm.state.value.day!!.products.all { it.sales.all { sale->sale.quantity==null } })
+        click("Periksa Laporan")
+        compose.onNodeWithText("Selesaikan Laporan").assertIsNotEnabled()
+        click("Lepaskan Tautan Callsheet")
+        click("Lepaskan")
+        awaitState("Link removed") { !vm.state.value.busy && vm.state.value.day?.callsheetLink==null }
+        compose.onNodeWithText("Selesaikan Laporan").assertIsEnabled()
+    }
+
     @Test fun upgradingAnOldDraftRequiresConfirmationAndKeepsItsManualValue() {
         val initial=newDaily(Identity(sales="Historical Sales")).copy(formatVersion=3)
         val old=initial.copy(products=initial.products.mapIndexed { index,stock ->

@@ -164,4 +164,107 @@ class PersistenceTest {
         Unit
     }
 
+    @Test fun linksAreTransactionalAndRecheckedAtFinalization() = runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        Room.inMemoryDatabaseBuilder(context,LhsDatabase::class.java).build().use { db ->
+            val repo=Repository(context,db)
+            val identity=Identity(date="2026-11-07",sales="MAIKEL",area="SORONG")
+            val source=CallReport(identity=identity,completed=true,outlets=listOf(
+                Outlet(quantities=listOf(Quantity(sold=0),Quantity(sold=650),Quantity(sold=0)))
+            ))
+            val base=newDaily(identity)
+            val draft=base.copy(products=base.products.mapIndexed { p,stock ->
+                val g=if(p==1)200L else 0L
+                val rtl=if(p==1)450L else 0L
+                stock.copy(sales=listOf(stock.sales[0].copy(quantity=g),stock.sales[1],stock.sales[2].copy(quantity=rtl)))
+            })
+            val other=draft.copy(id=java.util.UUID.randomUUID().toString())
+            repo.save(source)
+            repo.save(draft)
+            repo.save(other)
+            val hash=SalesReconciliation.fingerprint(source)
+            assertEquals(IntegrationMode.MANDIRI,repo.settings().integrationMode)
+            assertTrue(runCatching { repo.changeCallsheetLink(draft.id,source.id,hash) }.isFailure)
+            repo.save(Settings(integrationMode=IntegrationMode.TERINTEGRASI))
+            assertTrue(runCatching { repo.changeCallsheetLink(draft.id,source.id,"stale") }.isFailure)
+            val linked=repo.changeCallsheetLink(draft.id,source.id,hash)
+            assertEquals(draft.products,linked.products)
+            assertTrue(runCatching { repo.changeCallsheetLink(other.id,source.id,hash) }.isFailure)
+            repo.save(Settings())
+            assertEquals(linked.callsheetLink,repo.daily(draft.id)!!.callsheetLink)
+            val mismatch=draft.copy(products=draft.products.mapIndexed { p,stock ->
+                if(p==1)stock.copy(sales=stock.sales.mapIndexed { tier,sale -> if(tier==2)sale.copy(quantity=400) else sale }) else stock
+            })
+            repo.save(mismatch)
+            assertEquals(linked.callsheetLink,repo.daily(draft.id)!!.callsheetLink)
+            assertTrue(runCatching { repo.finalizeDay(draft.id) }.isFailure)
+            assertTrue(runCatching { repo.save(mismatch.copy(status=ReportStatus.FINAL)) }.isFailure)
+            repo.save(draft)
+            repo.save(source.copy(completed=false))
+            assertTrue(runCatching { repo.finalizeDay(draft.id) }.isFailure)
+            val changed=repo.save(source.copy(outlets=source.outlets.map { outlet ->
+                outlet.copy(quantities=listOf(Quantity(sold=0),Quantity(sold=700),Quantity(sold=0)))
+            }))
+            assertTrue(runCatching { repo.finalizeDay(draft.id) }.exceptionOrNull()!!.message!!.contains("konfirmasi ulang",true))
+            repo.changeCallsheetLink(draft.id,source.id,SalesReconciliation.fingerprint(changed))
+            assertTrue(runCatching { repo.finalizeDay(draft.id) }.isFailure)
+            repo.save(source)
+            val restored=repo.call(source.id)!!
+            repo.changeCallsheetLink(draft.id,source.id,SalesReconciliation.fingerprint(restored))
+            val final=repo.finalizeDay(draft.id).reports.single()
+            repo.deleteCall(source.id)
+            assertEquals(final,repo.daily(draft.id))
+            assertTrue(runCatching { repo.changeCallsheetLink(draft.id,null,null) }.isFailure)
+            repo.reopen(draft.id)
+            val unlinked=repo.changeCallsheetLink(draft.id,null,null)
+            assertNull(unlinked.callsheetLink)
+            assertEquals(draft.products,unlinked.products)
+            assertEquals(ReportStatus.FINAL,repo.finalizeDay(draft.id).reports.single().status)
+        }
+        Unit
+    }
+
+    @Test fun featureSettingsAndLinksRoundTripAndLegacySettingsDefaultOff() = runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        val name="stage39-settings"
+        context.deleteDatabase(name)
+        fun open()=Room.databaseBuilder(context,LhsDatabase::class.java,name).build()
+        val identity=Identity(date="2026-11-07",sales="MAIKEL")
+        val source=CallReport(identity=identity,completed=true)
+        val draft=newDaily(identity)
+        val historical=newDaily(identity).copy(status=ReportStatus.FINAL,finance=Finance(madeBy="PEMBUAT LAMA"))
+        val settings=Settings(lhsFeatures=LhsFeatureSettings(true,false,true),integrationMode=IntegrationMode.TERINTEGRASI)
+        val dir=java.io.File(context.cacheDir,"exports").apply { mkdirs() }
+        val file=java.io.File(dir,"stage39-backup.zip")
+        open().use { db ->
+            val repo=Repository(context,db)
+            db.dao().save(SettingsEntity(payload="{}"))
+            assertEquals(LhsFeatureSettings(),repo.settings().lhsFeatures)
+            assertEquals(IntegrationMode.MANDIRI,repo.settings().integrationMode)
+            repo.save(settings)
+            repo.save(source)
+            repo.save(draft)
+            repo.save(historical)
+            repo.changeCallsheetLink(draft.id,source.id,SalesReconciliation.fingerprint(source))
+            repo.backup(file)
+        }
+        open().use { db ->
+            val repo=Repository(context,db)
+            assertEquals(settings,repo.settings())
+            assertEquals("PEMBUAT LAMA",repo.daily(historical.id)!!.finance.madeBy)
+            val before=repo.daily(draft.id)!!.callsheetLink
+            repo.deleteDaily(draft.id)
+            repo.deleteCall(source.id)
+            repo.save(Settings())
+            val uri=androidx.core.content.FileProvider.getUriForFile(context,"id.lhspapua.files",file)
+            repo.restore(uri)
+            assertEquals(settings,repo.settings())
+            assertEquals(before,repo.daily(draft.id)!!.callsheetLink)
+            assertEquals(source,repo.call(source.id))
+            assertEquals(historical,repo.daily(historical.id))
+        }
+        context.deleteDatabase(name)
+        Unit
+    }
+
 }

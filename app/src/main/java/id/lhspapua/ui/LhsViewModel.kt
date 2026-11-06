@@ -219,7 +219,7 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
         if(state.value.busy)return
         val now=Instant.now()
         val identity=state.value.settings.profile.copy(date=ReportTime.date(now).toString())
-        val r=newDaily(identity).copy(createdAt=now.toString())
+        val r=newDaily(identity).copy(createdAt=now.toString(),automaticMadeBy=true)
         open(r);saveDay(r)
     }
     fun open(r:CallReport) {
@@ -247,10 +247,24 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
         if(state.value.busy)return
         val old=state.value.day ?: return
         if(old.status==ReportStatus.FINAL) { error("Buka kembali laporan sebelum mengubahnya.");return }
-        val r=change(old)
+        val edit=change(old)
+        val r=if(old.automaticMadeBy)edit.copy(finance=edit.finance.copy(madeBy=edit.identity.uppercaseFields().sales)) else edit
         if(r==old)return
         mutable.update { it.copy(day=r,pdf=null,xlsx=null) };saveDay(r)
     }
+    fun changeCallsheetLink(reportId:String,sourceId:String?,fingerprint:String?) {
+        val current=state.value
+        val report=current.day ?: return
+        if(current.busy || report.id!=reportId || report.status!=ReportStatus.DRAFT)return
+        mutable.update { it.copy(busy=true) }
+        enqueue {
+            try {
+                val updated=repository.changeCallsheetLink(reportId,sourceId,fingerprint)
+                mutable.update { if(it.day?.id==reportId)it.copy(day=updated) else it }
+            } finally { mutable.update { it.copy(busy=false) } }
+        }
+    }
+
     fun enableAutomaticSold() {
         if(state.value.day?.canEnableAutomaticSold!=true)return
         day { it.copy(formatVersion=4) }

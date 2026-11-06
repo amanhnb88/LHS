@@ -193,7 +193,7 @@ internal object RupiahTransformation:VisualTransformation {
         })
     }
 }
-@Composable private fun fieldAccess(tag:String):Modifier {
+@Composable private fun fieldAccess(tag:String,enabled:Boolean=true):Modifier {
     val request=LocalFieldFocus.current
     val commit=LocalInputCommit.current
     val requester=remember(tag) { FocusRequester() }
@@ -204,21 +204,23 @@ internal object RupiahTransformation:VisualTransformation {
     LaunchedEffect(imeOpen,focused) {
         if(imeOpen && focused) { delay(180);bring.bringIntoView() }
     }
-    LaunchedEffect(request,tag) { if(request.tag==tag) { delay(60);runCatching { requester.requestFocus() };bring.bringIntoView() } }
+    LaunchedEffect(request,tag,enabled) { if(enabled && request.tag==tag) { delay(60);runCatching { requester.requestFocus() };bring.bringIntoView() } }
     return Modifier.focusRequester(requester).bringIntoViewRequester(bring).onFocusChanged { f->
         if(focused&&!f.isFocused)commit()
         focused=f.isFocused
         if(f.isFocused)scope.launch { delay(100);bring.bringIntoView() }
     }
 }
-@Composable internal fun Numeric(label:String,value:Long?,money:Boolean=false,signed:Boolean=false,modifier:Modifier=Modifier,tag:String=label,readonly:Boolean=false,compact:Boolean=false,error:String?=null,done:Boolean=false,onChange:(Long?)->Unit={}) {
+@Composable internal fun Numeric(label:String,value:Long?,money:Boolean=false,signed:Boolean=false,modifier:Modifier=Modifier,tag:String=label,readonly:Boolean=false,compact:Boolean=false,error:String?=null,done:Boolean=false,enabled:Boolean=true,onChange:(Long?)->Unit={}) {
     val focus=LocalFocusManager.current;val keyboard=LocalSoftwareKeyboardController.current;val commit=LocalInputCommit.current
     var editor by remember(tag) { mutableStateOf(TextFieldValue(value?.toString() ?: "")) }
-    var invalid by remember(tag) { mutableStateOf(false) }
+    var invalid by remember(tag,enabled) { mutableStateOf(false) }
     LaunchedEffect(value,tag) {
         if(editor.text.toLongOrNull()!=value || (value==null && editor.text.isNotEmpty() && editor.text!="-"))editor=TextFieldValue(value?.toString() ?: "")
     }
-    OutlinedTextField(value=editor,onValueChange={ candidate->
+    val locked=readonly||LocalInputLocked.current
+    OutlinedTextField(value=editor,enabled=enabled,onValueChange={ candidate->
+        if(!enabled || locked)return@OutlinedTextField
         val normalized=NumberInput.normalize(candidate.text,money,signed)
         if(normalized==null)invalid=true else {
             invalid=false
@@ -227,10 +229,10 @@ internal object RupiahTransformation:VisualTransformation {
         }
     },label=if(compact)null else ({ Text(label,style=MaterialTheme.typography.bodySmall) }),
         placeholder={ Text(if(readonly)"—" else if(money&&label.startsWith("Harga"))"Belum diatur" else "—") },
-        modifier=modifier.fillMaxWidth().then(fieldAccess(tag)).testTag(tag).semantics { contentDescription=label },
-        readOnly=readonly||LocalInputLocked.current,singleLine=true,isError=invalid||error!=null,
+        modifier=modifier.fillMaxWidth().then(fieldAccess(tag,enabled)).testTag(tag).semantics { contentDescription=label },
+        readOnly=locked,singleLine=true,isError=invalid||error!=null,
         prefix=if(money)({ Text("Rp ") })else null,
-        trailingIcon=if(signed&&!readonly)({ TextButton(enabled=value!=null,onClick={ value?.let { onChange(-it) } }) { Text("±") } })else null,
+        trailingIcon=if(signed&&!readonly)({ TextButton(enabled=enabled&&!locked&&value!=null,onClick={ value?.let { onChange(-it) } }) { Text("±") } })else null,
         supportingText=when { invalid->({ Text("Gunakan angka bulat, maksimal 15 digit.") });error!=null->({ Text(error) });else->null },
         visualTransformation=if(money)RupiahTransformation else VisualTransformation.None,
         keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number,imeAction=if(done)ImeAction.Done else ImeAction.Next),
@@ -246,19 +248,20 @@ internal fun TextFieldValue.uppercaseInput():TextFieldValue {
     return copy(text=uppercase,selection=range(selection),composition=composition?.let(::range))
 }
 
-@Composable internal fun TextInput(label:String,value:String,multiline:Boolean=false,tag:String=label,error:String?=null,done:Boolean=false,onChange:(String)->Unit) {
+@Composable internal fun TextInput(label:String,value:String,multiline:Boolean=false,tag:String=label,error:String?=null,done:Boolean=false,enabled:Boolean=true,onChange:(String)->Unit) {
     val focus=LocalFocusManager.current;val keyboard=LocalSoftwareKeyboardController.current;val commit=LocalInputCommit.current
     var editor by remember(tag) { mutableStateOf(TextFieldValue(value)) }
     LaunchedEffect(value,tag) {
         if(editor.text!=value)editor=TextFieldValue(value,TextRange(
             editor.selection.start.coerceAtMost(value.length),editor.selection.end.coerceAtMost(value.length)))
     }
-    OutlinedTextField(value=editor,onValueChange={ candidate ->
+    OutlinedTextField(value=editor,enabled=enabled,onValueChange={ candidate ->
+        if(!enabled)return@OutlinedTextField
         val edited=candidate.text!=editor.text
         editor=if(edited)candidate.uppercaseInput() else candidate
         if(edited)onChange(editor.text)
     },readOnly=LocalInputLocked.current,label={ Text(label) },singleLine=!multiline,minLines=if(multiline)2 else 1,
-        modifier=Modifier.fillMaxWidth().then(fieldAccess(tag)).testTag(tag),isError=error!=null,supportingText=error?.let { { Text(it) } },
+        modifier=Modifier.fillMaxWidth().then(fieldAccess(tag,enabled)).testTag(tag),isError=error!=null,supportingText=error?.let { { Text(it) } },
         keyboardOptions=KeyboardOptions(capitalization=KeyboardCapitalization.Characters,imeAction=if(multiline)ImeAction.Default else if(done)ImeAction.Done else ImeAction.Next),
         keyboardActions=KeyboardActions(onNext={ focus.moveFocus(FocusDirection.Next);commit() },onDone={ focus.clearFocus();keyboard?.hide();commit() }))
 }

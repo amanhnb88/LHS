@@ -25,6 +25,7 @@ import java.io.File
     var finish by remember { mutableStateOf(false) };var reopen by remember { mutableStateOf(false) };var allErrors by rememberSaveable { mutableStateOf(false) }
     var formatIndex by rememberSaveable { mutableIntStateOf(0) }
     val format=ExportFormat.entries[formatIndex]
+    val matching=if(day==null)null else rememberCallsheetReview(day,state)
     val distributable=issues.isEmpty()&&(complete||legacy||independent)
     ScrollPage(pageKey="review-${call?.id ?: day?.id}") {
         Text("Periksa Laporan",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
@@ -72,7 +73,8 @@ import java.io.File
             }
             if(visible.size<issues.size)TextButton(onClick={ allErrors=true }) { Text("Lihat semua yang perlu dilengkapi") }
         }
-        if(!complete&&!legacy)Button(onClick={ if(independent) vm.finalizeDay {} else finish=true },enabled=issues.isEmpty()&&!state.busy,modifier=Modifier.fillMaxWidth()) { Text("Selesaikan Laporan") }
+        if(day!=null)CallsheetLinkPanel(day,state,vm,matching)
+        if(!complete&&!legacy)Button(onClick={ if(independent) vm.finalizeDay {} else finish=true },enabled=issues.isEmpty()&&matching?.problems.orEmpty().isEmpty()&&!state.busy,modifier=Modifier.fillMaxWidth()) { Text("Selesaikan Laporan") }
         HorizontalDivider()
         Text("Ekspor",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
