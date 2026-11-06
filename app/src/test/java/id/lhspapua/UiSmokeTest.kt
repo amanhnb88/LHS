@@ -90,6 +90,9 @@ class UiSmokeTest {
         val restored = vm.state.value.call!!.activeOutlets().single().quantities
         assertEquals(Quantity(sold=200), restored[1])
         assertEquals(Quantity(), restored[0])
+        saved()
+        assertFalse("A persisted draft must not show a save error after navigating",vm.state.value.saveFailed)
+        compose.onNodeWithText("Tersimpan").assertExists()
         snapshot("STAGE3_VISITS")
     }
     @Test fun tenVisitsAllowSoldAboveStockAndPreserveNumbers() {

@@ -85,9 +85,17 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
             for(job in jobs) {
                 try { job() } catch(e:CancellationException) { throw e }
                 catch(e:Exception) { mutable.update { it.copy(error=e.message ?: "Pekerjaan gagal. Coba lagi.") } }
-                finally { mutable.update { val n=(it.pending-1).coerceAtLeast(0)
-                    val failed=it.saveFailed || (n==0 && journal.all.isNotEmpty())
-                    it.copy(pending=n,saveFailed=failed,saved=if(failed) "Gagal menyimpan" else if(n==0) "Tersimpan" else "Menyimpan…") } }
+                finally {
+                    mutable.update {
+                        val pending=(it.pending-1).coerceAtLeast(0)
+                        val status=when {
+                            it.saveFailed -> "Gagal menyimpan"
+                            pending==0 -> "Tersimpan"
+                            else -> "Menyimpan…"
+                        }
+                        it.copy(pending=pending,saved=status)
+                    }
+                }
             }
         }
         viewModelScope.launch {

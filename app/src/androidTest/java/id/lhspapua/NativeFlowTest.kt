@@ -123,6 +123,41 @@ class NativeFlowTest {
         }
     }
 
+    @Test fun edgeGestureReturnsThroughCallsheetBeforeOfferingExit() {
+        start()
+        val instrumentation=InstrumentationRegistry.getInstrumentation()
+        compose.waitUntil(15000) {
+            android.provider.Settings.Secure.getInt(instrumentation.targetContext.contentResolver,"navigation_mode",0)==2
+        }
+        fun swipeBack() {
+            val (width,height)=compose.runOnIdle {
+                val view=compose.activity.window.decorView
+                view.width to view.height
+            }
+            val y=height/2
+            val result=instrumentation.uiAutomation.executeShellCommand("input swipe 2 $y ${width/3} $y 280")
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(result).use { it.readBytes() }
+        }
+        fun visible(text:String)=compose.waitUntil(15000) {
+            compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+        }
+
+        tab("calls").performClick()
+        click("Buat Laporan Baru")
+        click("Tambah Outlet")
+        swipeBack()
+        visible("Kunjungan hari ini · 0 outlet")
+        compose.onNodeWithText("Keluar dari LHS Papua?").assertDoesNotExist()
+        swipeBack()
+        visible("Buat Laporan Baru")
+        swipeBack()
+        visible("LHS Papua")
+        swipeBack()
+        visible("Keluar dari LHS Papua?")
+        click("Batal")
+        tab("home").assertIsSelected()
+    }
+
     @Test fun nativePreviewRendersAndNavigatesTwoPages() {
         val context=ApplicationProvider.getApplicationContext<Context>();val file=File(context.cacheDir,"preview.pdf")
         val r=id.lhspapua.domain.CallReport(outlets=List(31) { id.lhspapua.domain.Outlet(name="Outlet $it") })
