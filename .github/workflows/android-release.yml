@@ -16,7 +16,7 @@ jobs:
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
-       github.event.before == '975f60f5348a960ef20667327ef3083a203f20f5')
+       github.event.before == 'a04a22b3d6fe9032a6fb1663097ed90f1b91d621')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -68,7 +68,7 @@ jobs:
           export ANDROID_AVD_HOME="$ANDROID_USER_HOME/avd"
           export ANDROID_EMULATOR_HOME="$ANDROID_USER_HOME"
           mkdir -p "$ANDROID_AVD_HOME"
-          image="system-images;android-34;google_apis;x86_64"
+          image="system-images;android-34;default;x86_64"
           sdkmanager --install emulator "$image"
           printf 'no\n' | avdmanager create avd --force --name lhs-test --package "$image" --device pixel_2 --path "$ANDROID_AVD_HOME/lhs-test.avd"
           test -s "$ANDROID_AVD_HOME/lhs-test.avd/config.ini"
@@ -81,11 +81,24 @@ jobs:
           trap 'adb emu kill >/dev/null 2>&1 || true; kill "$emulator_pid" 2>/dev/null || true' EXIT
           timeout 180 bash -c 'until adb get-state 2>/dev/null | grep -qx device; do kill -0 "$1" 2>/dev/null || exit 1; sleep 2; done' bash "$emulator_pid" || { cat "$RUNNER_TEMP/lhs-emulator.log"; exit 1; }
           timeout 300 bash -c 'until [[ "$(adb shell getprop sys.boot_completed | tr -d "\r")" == 1 ]]; do sleep 2; done' || { cat "$RUNNER_TEMP/lhs-emulator.log"; exit 1; }
-          adb shell input keyevent 82
+          adb shell settings put global device_provisioned 1
+          adb shell settings put secure user_setup_complete 1
+          adb shell settings put global hide_error_dialogs 1
+          adb shell svc power stayon true
+          adb shell input keyevent KEYCODE_WAKEUP
+          adb shell wm dismiss-keyguard
           adb shell settings put secure show_ime_with_hard_keyboard 1
           adb shell wm size 720x1280
           adb shell wm density 320
-          bash gradlew --no-daemon connectedDebugAndroidTest
+          timeout 60 bash -c 'until adb shell ime list -s | tr -d "\r" | grep -q latin; do sleep 2; done'
+          ime="$(adb shell ime list -s | tr -d '\r' | awk '/latin/ {print; exit}')"
+          adb shell ime enable "$ime"
+          adb shell ime set "$ime"
+          bash gradlew --no-daemon connectedDebugAndroidTest || {
+            adb shell dumpsys window > "$RUNNER_TEMP/lhs-window.log"
+            adb logcat -d -t 1800 > "$RUNNER_TEMP/lhs-device.log"
+            exit 1
+          }
       - name: Upload test reports and UI captures
         if: always()
         uses: actions/upload-artifact@v4
@@ -97,6 +110,8 @@ jobs:
             app/build/verification/
             app/build/outputs/androidTest-results/connected/
             ${{ runner.temp }}/lhs-emulator.log
+            ${{ runner.temp }}/lhs-window.log
+            ${{ runner.temp }}/lhs-device.log
           if-no-files-found: ignore
           retention-days: 7
       - name: Remove temporary signing file

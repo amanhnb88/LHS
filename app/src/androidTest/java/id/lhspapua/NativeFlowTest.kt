@@ -51,7 +51,7 @@ class NativeFlowTest {
         compose.onNodeWithTag("Nama Outlet").performScrollTo().performTextReplacement("Toko Uji")
         compose.onNodeWithTag("Alamat").performScrollTo().performTextReplacement("Jayapura")
         val field=compose.onNodeWithTag("call-1-sold").performScrollTo()
-        field.performClick()
+        field.performTouchInput { click() }
         compose.waitUntil(15000) { imeVisible() }
         field.performTextReplacement("200")
         compose.onNodeWithText("Simpan & Tambah Outlet").assertDoesNotExist()
@@ -147,7 +147,7 @@ class NativeFlowTest {
         val id=vm.state.value.day!!.id
 
         val delivery=field("stock-0-do")
-        delivery.performClick()
+        delivery.performTouchInput { click() }
         compose.waitUntil(15000) {
             compose.runOnIdle {
                 ViewCompat.getRootWindowInsets(compose.activity.window.decorView)
