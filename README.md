@@ -9,7 +9,7 @@ Tab bawah menyediakan **Beranda**, **Callsheet**, **LHS**, dan **Riwayat**. Pili
 Back dari editor kembali melalui layar terkait dan tab asal. Back dari tab selain Beranda menuju Beranda. Dari Beranda, konfirmasi **Keluar** menunggu antrean simpan. Jika simpan gagal, pilih **Coba Lagi** atau **Batal** untuk tetap di aplikasi. Perubahan disimpan otomatis dan input terbaru dijurnal untuk pemulihan saat proses berhenti sebelum Room selesai menulis.
 
 - **Callsheet:** identitas → cari nama/alamat outlet langsung → pilih saran atau tambah outlet baru → tiga baris Stok/Jual → **Simpan & Tambah Outlet**. Outlet baru hanya menyalin nama dan alamat, tanpa transaksi lama. Untuk kunjungan yang sudah dicatat gunakan **Simpan Perubahan**. **Daftar Kunjungan** menyediakan pencarian, edit dan hapus dengan konfirmasi. **Periksa Laporan** menampilkan total dan ekspor. Keenam kolom angka boleh diisi sendiri-sendiri. Jumlah dihitung per kolom dan kolom tanpa angka tampil kosong.
-- **Laporan Harian:** pilih produk pada bilah **Stok & Penjualan**, lalu isi kolom yang diketahui. DO, Jual, Sample, Bns, dan TG diisi terpisah dari G/RTL. **Tester** menyediakan DO, Sampel, dan TG manual. Pada **Keuangan**, Total Penjualan dihitung otomatis dan saldo serta transaksi lainnya diisi manual.
+- **Laporan Harian:** pilih produk pada bilah **Stok & Penjualan**, lalu isi kolom yang diketahui. Jual terisi dari G + RTL untuk produk yang dipilih. DO, Sample, Bns, dan TG diisi manual. **Tester** menyediakan DO, Sampel, dan TG manual. Pada **Keuangan**, Total Penjualan dihitung otomatis dan saldo serta transaksi lainnya diisi manual.
 - **Pemeriksaan:** **Periksa Laporan** menyediakan pilihan PDF dan Excel dengan aksi sesuai format. Laporan harian baru dapat diekspor saat masih draf. Pilih **Selesaikan Laporan** untuk mengunci draf dan **Buka Kembali untuk Edit** bila perlu memperbaikinya.
 - **Pratinjau PDF:** dibuka sebagai halaman utuh, mendukung lebar layar, ketuk dua kali, pinch, geser, dan reset. Indikator halaman dan kontrol zoom ada di bilah bawah.
 - **Pengaturan:** Profil Sales, Harga Produk, Daftar Outlet, Backup Data, dan Pengaturan Lanjutan. Harga dan aturan tetap snapshot per laporan. Lampiran disalin ke penyimpanan internal dan dibagikan sebagai file terpisah.
@@ -28,7 +28,7 @@ Kuantitas dan nilai rupiah memakai bilangan bulat dengan batas 15 digit untuk Ex
 
 Subtotal = jumlah × harga. Total produk menjumlahkan subtotal G dan RTL. Total Penjualan menjumlahkan total ketiga produk. Baris SG pada cetakan laporan baru menampilkan tanda `-` di harga.
 
-Laporan format 3 menyimpan Jual STOCK, TG STOCK, TG TESTER, serta Saldo Akhir sebagai angka manual. Laporan format 2 tetap memakai pencatatan stok antarhari. Aturan, harga, dan transaksi SG pada laporan historis mengikuti snapshot laporan masing-masing.
+Laporan baru memakai format 4 dengan Jual STOCK otomatis. TG STOCK, TG TESTER, dan Saldo Akhir tetap manual. Format 3 mempertahankan Jual manual. Draft format 3 dapat dikonversi melalui **Aktifkan Jual Otomatis** setelah meninjau perbedaan jumlah. Isian teks baru ditulis dalam huruf kapital. Laporan format 2 tetap memakai pencatatan stok antarhari. Aturan, harga, dan transaksi SG pada laporan historis mengikuti snapshot laporan masing-masing.
 
 ## Kompatibilitas data
 

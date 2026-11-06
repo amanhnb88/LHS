@@ -41,7 +41,9 @@ fun CallReport.activeOutlets() = outlets.filterNot { it.untouched() }
     val revision: Long = 0, val stockStale: Boolean = false, val stockIssue: String = "",
     val openingNote: String = "", val finalizedAt: String? = null, val wasFinalized: Boolean = false) {
     val usesLedger: Boolean get() = formatVersion == 2
-    val independent: Boolean get() = formatVersion == 3
+    val independent: Boolean get() = formatVersion in 3..4
+    val automaticSold: Boolean get() = formatVersion == 4
+    val canEnableAutomaticSold: Boolean get() = formatVersion == 3 && status == ReportStatus.DRAFT
 }
 @Serializable enum class ReportStatus { DRAFT, FINAL }
 @Serializable enum class OpeningMode { AUTO, MANUAL }
@@ -67,11 +69,16 @@ object OfficialPrices {
     }
 }
 
-/** Stage 3.2 input starts blank, with prices snapshotted for this report. */
+fun Identity.uppercaseFields() = copy(
+    sales=sales.uppercase(Locale.ROOT),join=join.uppercase(Locale.ROOT),area=area.uppercase(Locale.ROOT),
+    route=route.uppercase(Locale.ROOT),vehicle=vehicle.uppercase(Locale.ROOT),plate=plate.uppercase(Locale.ROOT)
+)
+
+/** New reports derive stock sold from the applicable sales quantities. */
 fun newDaily(identity: Identity) = DailyReport(
-    identity = identity.copy(stockOwnerId = ""),
-    formatVersion = 3,
+    identity = identity.uppercaseFields().copy(stockOwnerId = ""),
+    formatVersion = 4,
     products = Product.entries.map { product -> Stock(sales = OfficialPrices.sales(product)) },
-    finance = Finance(madeBy = identity.sales),
+    finance = Finance(madeBy = identity.sales.uppercase(Locale.ROOT)),
     rules = Rules(automaticTg = false, automaticFinance = false)
 )

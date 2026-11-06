@@ -76,7 +76,7 @@ class UiSmokeTest {
         awaitState("Callsheet appears in persisted history") { vm.state.value.calls.any { it.id==id } }
         val count=vm.state.value.calls.size
         text("outlet-search","aimas");click("Toko Aimas")
-        compose.onNodeWithTag("Alamat").assertTextContains("Jalan Aimas")
+        compose.onNodeWithTag("Alamat").assertTextContains("JALAN AIMAS")
         assertTrue(vm.state.value.call!!.outlets.last().quantities.all { it.stock==null&&it.sold==null })
         text("call-1-sold","200")
         snapshot("STAGE3_CALLSHEET");click("Simpan & Tambah Outlet");click("Daftar Kunjungan")
@@ -87,7 +87,7 @@ class UiSmokeTest {
         compose.onNodeWithTag("tab-calls").assertIsSelected()
         saved();assertEquals(count,vm.state.value.calls.size)
         compose.onAllNodesWithText("Lanjutkan").onFirst().performClick();assertEquals(id,vm.state.value.call!!.id)
-        compose.onNodeWithText("1. Toko Aimas").performScrollTo().assertExists()
+        compose.onNodeWithText("1. TOKO AIMAS").performScrollTo().assertExists()
         val restored = vm.state.value.call!!.activeOutlets().single().quantities
         assertEquals(Quantity(sold=200), restored[1])
         assertEquals(Quantity(), restored[0])
@@ -109,27 +109,28 @@ class UiSmokeTest {
         text("outlet-search","");click("Periksa Laporan")
         compose.onNodeWithText("Stok 100 · Jual 38").performScrollTo().assertExists()
         click("Edit Callsheet");text("outlet-search","Outlet Uji 10");click("Hapus");click("Batal")
-        compose.onNodeWithText("10. Outlet Uji 10").assertExists();click("Hapus")
+        compose.onNodeWithText("10. OUTLET UJI 10").assertExists();click("Hapus")
         compose.onNode(hasText("Hapus") and hasClickAction() and hasAnyAncestor(isDialog())).performClick()
         saved();assertEquals(9,vm.state.value.call!!.activeOutlets().size)
     }
-    @Test fun dailyManualInputsStayIndependentAndExportAsDraft() {
+    @Test fun automaticSoldAndManualStockInputsExportAsDraft() {
         compose.onNodeWithTag("tab-days").performClick();click("Buat Laporan Baru");saved()
         val quantities = listOf(10 to 20,20 to 50,10 to 10)
         quantities.forEachIndexed { p,(gross,retail) ->
             if(p>0) click(Product.entries[p].label)
             compose.onNodeWithTag("stock-$p-opening").assertDoesNotExist()
             compose.onNodeWithTag("sale-$p-SG").assertDoesNotExist()
-            if(p<2)text("stock-$p-sold","100")
+            compose.onNodeWithTag("stock-$p-sold").assertDoesNotExist()
             if(p==0) {
                 text("stock-0-sample","5")
                 text("stock-0-tg","25")
             }
             text("sale-$p-G",gross.toString())
             text("sale-$p-RTL",retail.toString())
-            if(p==0)snapshot("STAGE32_PRODUCT")
+            compose.onNodeWithTag("stock-$p-sold-auto").assertTextContains("${gross+retail} BUNGKUS")
+            if(p==0)snapshot("STAGE35_PRODUCT")
         }
-        assertEquals(100L,vm.state.value.day!!.products[1].manualSold)
+        assertEquals(70L,Calculation.stockSold(vm.state.value.day!!,1))
         assertEquals(25L,vm.state.value.day!!.products[0].manualTg)
         assertNull(vm.state.value.day!!.products[0].delivery)
         click("Tester")
@@ -225,6 +226,29 @@ class UiSmokeTest {
         compose.onNode(hasText("Hapus Draft") and hasClickAction() and hasAnyAncestor(isDialog())).performClick()
         awaitState("Draft deleted") { vm.state.value.pending==0 && vm.state.value.calls.none { it.id==id } }
         assertNull(runBlocking { vm.repository.call(id) })
+    }
+
+    @Test fun upgradingAnOldDraftRequiresConfirmationAndKeepsItsManualValue() {
+        val initial=newDaily(Identity(sales="Historical Sales")).copy(formatVersion=3)
+        val old=initial.copy(products=initial.products.mapIndexed { index,stock ->
+            if(index!=0)stock else stock.copy(manualSold=95,manualTg=50,sales=stock.sales.mapIndexed { tier,sale ->
+                if(tier==Tier.RTL.ordinal)sale.copy(quantity=50) else sale
+            })
+        })
+        runBlocking { vm.repository.save(old) }
+        compose.runOnIdle { vm.open(old) }
+        click("Aktifkan Jual Otomatis")
+        compose.onNodeWithText("MARTIL 12: 95 → 50",substring=true).assertExists()
+        click("Batal")
+        assertEquals(3,vm.state.value.day!!.formatVersion)
+        click("Aktifkan Jual Otomatis")
+        click("Aktifkan")
+        saved()
+        val upgraded=runBlocking { requireNotNull(vm.repository.daily(old.id)) }
+        assertTrue(upgraded.automaticSold)
+        assertEquals(95L,upgraded.products[0].manualSold)
+        assertEquals(50L,Calculation.stockSold(upgraded,0))
+        assertEquals(50L,Calculation.stockTg(upgraded,0))
     }
 
 }

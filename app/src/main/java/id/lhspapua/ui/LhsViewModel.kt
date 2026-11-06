@@ -190,7 +190,7 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
         }
     }
 
-    fun newCall() { if(state.value.busy)return;val r=CallReport(identity=state.value.settings.profile.copy(date=LocalDate.now().toString()));open(r);saveCall(r) }
+    fun newCall() { if(state.value.busy)return;val r=CallReport(identity=state.value.settings.profile.uppercaseFields().copy(date=LocalDate.now().toString()));open(r);saveCall(r) }
     fun newDay() {
         if(state.value.busy)return
         val s=state.value.settings
@@ -224,6 +224,11 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
         val r=change(old)
         mutable.update { it.copy(day=r,pdf=null,xlsx=null) };saveDay(r)
     }
+    fun enableAutomaticSold() {
+        if(state.value.day?.canEnableAutomaticSold!=true)return
+        day { it.copy(formatVersion=4) }
+    }
+
     private fun saveCall(r:CallReport) {
         queueWrite("call:${r.id}",repository.json.encodeToString(r)) { repository.save(r) }
     }
@@ -341,7 +346,7 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
     }
     fun saveOutlet(o:Outlet) {
         if(o.name.isBlank())return
-        settings { s -> s.copy(outlets=(s.outlets.filterNot { it.name.equals(o.name,true) }+SavedOutlet(o.name,o.address)).sortedBy { it.name }) }
+        settings { s -> s.copy(outlets=(s.outlets.filterNot { it.name.equals(o.name,true) }+SavedOutlet(o.name.uppercase(Locale.ROOT),o.address.uppercase(Locale.ROOT))).sortedBy { it.name }) }
     }
     fun removeCall(r:CallReport,draftOnly:Boolean=false) = removeReport("call",r.id,draftOnly)
     fun removeDay(r:DailyReport,draftOnly:Boolean=false) = removeReport("day",r.id,draftOnly,r.usesLedger)

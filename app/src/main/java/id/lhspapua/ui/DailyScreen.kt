@@ -7,6 +7,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import id.lhspapua.domain.*
@@ -22,6 +23,7 @@ import java.io.File
     var product by rememberSaveable(r.id) { mutableIntStateOf(if(r.independent) 0 else -1) }
     var identity by rememberSaveable(r.id) { mutableStateOf(!r.independent && r.identity.sales.isBlank()) }
     var correction by remember { mutableStateOf(false) }
+    var upgradeSold by rememberSaveable(r.id) { mutableStateOf(false) }
     var legacy by remember { mutableStateOf(false) }
     var sequenceDialog by remember { mutableStateOf(false) }
     LaunchedEffect(section) { vm.rememberSection(r.id,section) }
@@ -88,7 +90,10 @@ import java.io.File
                 }
                 if(r.independent) {
                     val p=product.coerceIn(Product.entries.indices)
-                    IndependentProductEditor(r.products[p],p,vm)
+                    if(r.canEnableAutomaticSold)TextButton(onClick={ upgradeSold=true },enabled=!state.busy) {
+                        Text("Aktifkan Jual Otomatis")
+                    }
+                    IndependentProductEditor(r,p,vm)
                 } else Product.entries.forEachIndexed { p,name ->
                     val stock=r.products[p]
                     val ownIssues=issues.filter { it.section==0 && it.product==p }
@@ -126,6 +131,16 @@ import java.io.File
             2->FinanceEditor(r,vm,attach,advanced)
         }
     }
+    if(upgradeSold && r.canEnableAutomaticSold) {
+        val changes=r.products.mapIndexed { index,stock ->
+            val old=stock.manualSold?.let(Calculation::grouped) ?: "—"
+            val updated=runCatching { Calculation.sold(stock)?.let(Calculation::grouped) ?: "—" }.getOrDefault("terlalu besar")
+            "${Product.entries[index].label}: $old → $updated"
+        }.joinToString("\n")
+        Confirmation("Aktifkan Jual Otomatis?",
+            "Jual pada draft ini akan mengikuti Grosir + Retail. Nilai manual lama tetap tercatat dalam data draft.\n\n$changes",
+            "Aktifkan",{ upgradeSold=false;vm.enableAutomaticSold() },{ upgradeSold=false })
+    }
     if(correction)Confirmation("Sesuaikan stok awal?","Isi jumlah sesuai stok fisik. Perubahan ini dicatat pada laporan dan tidak mengubah laporan sumber.","Sesuaikan",{ vm.manualOpening();correction=false },{ correction=false })
     if(legacy)Confirmation("Lengkapi laporan lama?","Identitas, transaksi, harga, dan lampiran tetap disimpan. Isi Stok Awal sebelum laporan dipakai untuk stok berikutnya.","Lengkapi",{ vm.adoptLegacy();section=0;identity=true;legacy=false },{ legacy=false })
     if(sequenceDialog) {
@@ -133,7 +148,8 @@ import java.io.File
         AlertDialog(onDismissRequest={ sequenceDialog=false },title={ Text("Laporan pada tanggal yang sama") },text={ Column { Text("Setiap laporan mempunyai urutan berbeda. Laporan berikutnya memakai sisa stok laporan sebelumnya yang sudah final.");Numeric("Laporan ke",number) { number=it } } },confirmButton={ TextButton(onClick={ if(number!=null&&number!! in 1..Int.MAX_VALUE.toLong()) { vm.day { it.copy(stockSequence=number!!.toInt()) };sequenceDialog=false } }) { Text("Gunakan") } },dismissButton={ TextButton(onClick={ sequenceDialog=false }) { Text("Batal") } })
     }
 }
-@Composable private fun IndependentProductEditor(stock: Stock, product: Int, vm: LhsViewModel) {
+@Composable private fun IndependentProductEditor(report:DailyReport,product:Int,vm:LhsViewModel) {
+    val stock=report.products[product]
     fun update(change: (Stock) -> Stock) {
         vm.day { report ->
             report.copy(products=report.products.replace(product,change(report.products[product])))
@@ -144,7 +160,16 @@ import java.io.File
             Numeric("Barang Masuk (DO)",stock.delivery,modifier=Modifier.weight(1f),tag="stock-$product-do") { n ->
                 update { it.copy(delivery=n) }
             }
-            Numeric("Jual",stock.manualSold,modifier=Modifier.weight(1f),tag="stock-$product-sold") { n ->
+            if(report.automaticSold) {
+                val sold=runCatching { Calculation.stockSold(report,product)?.let { "${Calculation.grouped(it)} BUNGKUS" } ?: "—" }
+                    .getOrDefault("Angka terlalu besar")
+                Surface(modifier=Modifier.weight(1f),shape=MaterialTheme.shapes.small,color=MaterialTheme.colorScheme.secondaryContainer) {
+                    Column(Modifier.padding(8.dp)) {
+                        Text("JUAL (OTOMATIS)",style=MaterialTheme.typography.labelSmall)
+                        Text(sold,fontWeight=FontWeight.Bold,modifier=Modifier.testTag("stock-$product-sold-auto"))
+                    }
+                }
+            } else Numeric("Jual",stock.manualSold,modifier=Modifier.weight(1f),tag="stock-$product-sold") { n ->
                 update { it.copy(manualSold=n) }
             }
         }

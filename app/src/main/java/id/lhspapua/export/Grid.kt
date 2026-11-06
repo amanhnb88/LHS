@@ -73,9 +73,9 @@ object Layout {
             val quantities=listOf(stock.delivery,Calculation.stockSold(r,p),stock.sample,stock.bonus,Calculation.stockTg(r,p))
             listOf("DO","Jual","Sample","Bns","TG").forEachIndexed { k,label ->
                 s.put(base+2+k,0,cs=4,t="$label :",edges=11)
-                val f=if(r.independent) null else when(k) {
-                    1 -> "IF(COUNT($soldRefs)=0,\"\",SUM($soldRefs))"
-                    4 -> if(stock.openingTracked) {
+                val f=when(k) {
+                    1 -> if(r.independent && !r.automaticSold) null else "IF(COUNT($soldRefs)=0,\"\",SUM($soldRefs))"
+                    4 -> if(r.independent) null else if(stock.openingTracked) {
                         val opening="'_StokAwal'!\$B\$${p+2}"
                         "IF(OR($opening=\"\",${s.ref(base+2,4)}=\"\",${s.ref(base+4,4)}=\"\",${s.ref(base+5,4)}=\"\",COUNT($soldRefs)<${activeTiers.size}),\"\",$opening+${s.ref(base+2,4)}-SUM(${s.ref(base+3,4)},${s.ref(base+4,4)},${s.ref(base+5,4)}))"
                     } else if(r.rules.automaticTg) "IF(${s.ref(base+2,4)}=\"\",\"\",${s.ref(base+2,4)}-SUM(${s.ref(base+3,4)})${if(r.rules.subtractSample) "-SUM(${s.ref(base+4,4)})" else ""}${if(r.rules.subtractBonus) "-SUM(${s.ref(base+5,4)})" else ""})" else null

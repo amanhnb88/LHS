@@ -66,10 +66,11 @@ class JpegExportTest {
         val draft=newDaily(Identity(sales="Maikel"))
         val martil=draft.products[1]
         val products=draft.products.toMutableList()
-        products[1]=martil.copy(sales=martil.sales.mapIndexed { i,sale->if(i==2)sale.copy(quantity=900) else sale })
+        products[1]=martil.copy(sales=martil.sales.mapIndexed { i,sale->when(i) { 0->sale.copy(quantity=200);2->sale.copy(quantity=500);else->sale } })
         val report=draft.copy(products=products)
-        assertEquals(13950000L,Calculation.total(report))
-        verify(export("LHS_900",listOf(Layout.daily(report))).single(),2480,3508)
+        assertEquals(10750000L,Calculation.total(report))
+        assertEquals(700L,Calculation.stockSold(report,1))
+        verify(export("LHS_700",listOf(Layout.daily(report))).single(),2480,3508)
 
         // Publish only fixture output so CI can retrieve it after instrumentation cleanup.
         if(android.os.Build.VERSION.SDK_INT>=29) {

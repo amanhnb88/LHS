@@ -34,7 +34,7 @@ import java.io.File
             Product.entries.forEachIndexed { p,product->
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
                 Text(product.label,fontWeight=FontWeight.Bold)
-                Text("Stok ${runCatching { Calculation.calls(call,p,true)?.toString() ?: "—" }.getOrDefault("—")} · Jual ${runCatching { Calculation.calls(call,p,false)?.toString() ?: "—" }.getOrDefault("—")}",style=MaterialTheme.typography.bodySmall)
+                Text("Stok ${runCatching { Calculation.calls(call,p,true)?.let(Calculation::grouped) ?: "—" }.getOrDefault("—")} · Jual ${runCatching { Calculation.calls(call,p,false)?.let(Calculation::grouped) ?: "—" }.getOrDefault("—")}",style=MaterialTheme.typography.bodySmall)
                 }
             }
             TextButton(onClick=onEdit) { Text("Edit Callsheet") }
@@ -44,7 +44,7 @@ import java.io.File
                 val stock=runCatching { Calculation.stockSold(day,p) }.getOrNull()
                 val tg=runCatching { Calculation.stockTg(day,p) }.getOrNull()
                 val tester=runCatching { Calculation.testerTg(day,p) }.getOrNull()
-                val details=listOfNotNull(stock?.let { "Jual Stok $it" },tg?.let { "TG $it" },tester?.let { "Tester $it" })
+                val details=listOfNotNull(stock?.let { "Jual Stok ${Calculation.grouped(it)}" },tg?.let { "TG $it" },tester?.let { "Tester $it" })
                 if(details.isNotEmpty())Text(details.joinToString(" · "),style=MaterialTheme.typography.bodySmall)
                 Text(Calculation.safeMoney(empty="—") { Calculation.productTotal(day.products[p]) })
             }

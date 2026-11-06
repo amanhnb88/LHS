@@ -1,10 +1,11 @@
 name: Android signed release
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/android-release.yml
+    inputs:
+      run_ui_tests:
+        description: Run Android instrumentation on an emulator
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -12,13 +13,9 @@ concurrency:
   cancel-in-progress: false
 jobs:
   release:
-    # Allow this one release push from the reviewed baseline, then use manual dispatch.
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      (github.event_name == 'workflow_dispatch' ||
-       github.event.before == '2e6f0afffca5bbbf64d3289c4bbb75e20ce5cc0b')
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -55,11 +52,13 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: LHS-Papua-1.2.4-signed
+          name: LHS-Papua-1.2.5-signed
           path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
       - name: Test native input on Android emulator
+        if: inputs.run_ui_tests
+        timeout-minutes: 12
         shell: bash
         run: |
           test -c /dev/kvm

@@ -38,7 +38,7 @@ object Calculation {
         return if (!r.automaticTg) t.manualTg else t.delivery?.let { bounded(it - (t.sample ?: 0)) }
     }
     fun stockSold(r: DailyReport, product: Int): Long? =
-        if(r.independent) r.products[product].manualSold else sold(r.products[product])
+        if(r.independent && !r.automaticSold) r.products[product].manualSold else sold(r.products[product])
 
     fun stockTg(r: DailyReport, product: Int): Long? =
         if(r.independent) r.products[product].manualTg else tg(r.products[product], r.rules)
@@ -69,6 +69,9 @@ object Calculation {
     fun errors(r: DailyReport): List<String> = buildList {
         if(r.independent) {
             runCatching { validate(r) }.onFailure { add(it.message ?: "Periksa angka pada laporan.") }
+            if(r.automaticSold)r.products.forEachIndexed { index,stock ->
+                runCatching { sold(stock) }.onFailure { add("${Product.entries[index].label}: jumlah Jual terlalu besar.") }
+            }
             runCatching { total(r) }.onFailure { add("Total terlalu besar untuk diekspor secara akurat.") }
             return@buildList
         }
@@ -99,7 +102,8 @@ object Calculation {
         }
         runCatching { total(r); balance(r) }.exceptionOrNull()?.let { add("Total terlalu besar untuk diekspor secara akurat.") }
     }
-    fun rupiah(n: Long?) = n?.let { "Rp " + NumberFormat.getIntegerInstance(Locale.forLanguageTag("id-ID")).format(it) } ?: "Belum lengkap"
+    fun grouped(n:Long) = NumberFormat.getIntegerInstance(Locale.forLanguageTag("id-ID")).format(n)
+    fun rupiah(n: Long?) = n?.let { "Rp " + grouped(it) } ?: "Belum lengkap"
     fun number(n: Long?) = n?.toString() ?: "Belum diisi"
     fun safeMoney(empty: String = "Belum lengkap", block: () -> Long?) = runCatching { block()?.let(::rupiah) ?: empty }.getOrDefault("Angka terlalu besar")
     fun validate(r: CallReport) {
@@ -124,7 +128,7 @@ object Calculation {
         require(r.testers.all { listOf(it.delivery,it.sample,it.manualTg,it.opening).all(::validInput) })
         require(validSigned(r.finance.previous) && validSigned(r.finance.manualBalance))
         require(listOf(r.finance.debt,r.finance.settlement,r.finance.transfer,r.finance.expense).all(::validInput))
-        require(r.formatVersion in 1..3 && r.stockSequence>0 && r.revision>=0)
+        require(r.formatVersion in 1..4 && r.stockSequence>0 && r.revision>=0)
         if(r.usesLedger) require(r.products.all { it.openingTracked } && r.testers.all { it.openingTracked })
         java.time.LocalDate.parse(r.identity.date)
     }

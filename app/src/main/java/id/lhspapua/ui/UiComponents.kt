@@ -190,11 +190,30 @@ internal object RupiahTransformation:VisualTransformation {
         keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number,imeAction=if(done)ImeAction.Done else ImeAction.Next),
         keyboardActions=KeyboardActions(onNext={ if(!focus.moveFocus(FocusDirection.Next)) { focus.clearFocus();keyboard?.hide() };commit() },onDone={ focus.clearFocus();keyboard?.hide();commit() }))
 }
+internal fun TextFieldValue.uppercaseInput():TextFieldValue {
+    val locale=java.util.Locale.ROOT
+    val uppercase=text.uppercase(locale)
+    if(uppercase==text)return this
+    if(uppercase.length==text.length)return copy(text=uppercase)
+    fun offset(position:Int)=text.substring(0,position).uppercase(locale).length.coerceAtMost(uppercase.length)
+    fun range(value:TextRange)=TextRange(offset(value.start),offset(value.end))
+    return copy(text=uppercase,selection=range(selection),composition=composition?.let(::range))
+}
+
 @Composable internal fun TextInput(label:String,value:String,multiline:Boolean=false,tag:String=label,error:String?=null,done:Boolean=false,onChange:(String)->Unit) {
     val focus=LocalFocusManager.current;val keyboard=LocalSoftwareKeyboardController.current;val commit=LocalInputCommit.current
-    OutlinedTextField(value=value,onValueChange=onChange,readOnly=LocalInputLocked.current,label={ Text(label) },singleLine=!multiline,minLines=if(multiline)2 else 1,
+    var editor by remember(tag) { mutableStateOf(TextFieldValue(value)) }
+    LaunchedEffect(value,tag) {
+        if(editor.text!=value)editor=TextFieldValue(value,TextRange(
+            editor.selection.start.coerceAtMost(value.length),editor.selection.end.coerceAtMost(value.length)))
+    }
+    OutlinedTextField(value=editor,onValueChange={ candidate ->
+        val edited=candidate.text!=editor.text
+        editor=if(edited)candidate.uppercaseInput() else candidate
+        if(edited)onChange(editor.text)
+    },readOnly=LocalInputLocked.current,label={ Text(label) },singleLine=!multiline,minLines=if(multiline)2 else 1,
         modifier=Modifier.fillMaxWidth().then(fieldAccess(tag)).testTag(tag),isError=error!=null,supportingText=error?.let { { Text(it) } },
-        keyboardOptions=KeyboardOptions(capitalization=KeyboardCapitalization.Sentences,imeAction=if(multiline)ImeAction.Default else if(done)ImeAction.Done else ImeAction.Next),
+        keyboardOptions=KeyboardOptions(capitalization=KeyboardCapitalization.Characters,imeAction=if(multiline)ImeAction.Default else if(done)ImeAction.Done else ImeAction.Next),
         keyboardActions=KeyboardActions(onNext={ focus.moveFocus(FocusDirection.Next);commit() },onDone={ focus.clearFocus();keyboard?.hide();commit() }))
 }
 @Composable internal fun DateButton(i:Identity,change:(String)->Unit) {

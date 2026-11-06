@@ -12,7 +12,7 @@ class Stage3LogicTest {
         val settings=Settings(outlets=listOf(SavedOutlet("Toko Aimas","Jl. Aimas")))
         val matches=OutletSearch.matches("aimas",settings,emptyList())
         assertEquals(1,matches.size)
-        val visit=OutletSearch.visit(matches.single());assertEquals("Jl. Aimas",visit.address)
+        val visit=OutletSearch.visit(matches.single());assertEquals("JL. AIMAS",visit.address)
         assertTrue(visit.quantities.all { it.stock==null&&it.sold==null })
         val old=CallReport(outlets=listOf(visit.copy(quantities=List(3){Quantity(500,200)})))
         assertEquals(1,OutletSearch.matches("aimas",settings,listOf(old)).size)
@@ -48,4 +48,18 @@ class Stage3LogicTest {
         val tester=r.copy(testers=r.testers.replace(2,r.testers[2].copy(opening=null)))
         assertEquals("tester-2-opening",ReportIssues.daily(tester).first { it.section==1 }.field)
     }
+    @Test fun uppercasePreservesCompositionSelectionWhitespaceAndSearch() {
+        val text=androidx.compose.ui.text.input.TextFieldValue("aß, kios\nmawar 07",
+            selection=androidx.compose.ui.text.TextRange(2),
+            composition=androidx.compose.ui.text.TextRange(1,2))
+        val normalized=text.uppercaseInput()
+        assertEquals("ASS, KIOS\nMAWAR 07",normalized.text)
+        assertEquals(androidx.compose.ui.text.TextRange(3),normalized.selection)
+        assertEquals(androidx.compose.ui.text.TextRange(1,3),normalized.composition)
+        val settings=Settings(outlets=listOf(SavedOutlet("Kios Mawar Aimas","jalan sorong")))
+        assertEquals(OutletSearch.matches("kios mawar",settings,emptyList()),
+            OutletSearch.matches("KIOS MAWAR",settings,emptyList()))
+        assertEquals("KIOS MAWAR AIMAS",OutletSearch.visit(settings.outlets.single()).name)
+    }
+
 }

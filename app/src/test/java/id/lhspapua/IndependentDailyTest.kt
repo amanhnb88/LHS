@@ -20,7 +20,7 @@ class IndependentDailyTest {
         ByteArrayOutputStream().also { ExcelExport.write(sheets,it) }.toByteArray()
 
     @Test fun manualStockTesterAndFinanceAreIndependentInPdfAndEditableExcel() {
-        val draft=newDaily(Identity())
+        val draft=newDaily(Identity()).copy(formatVersion=3)
         val sales=listOf(10L to 20L,20L to 50L,10L to 10L)
         val r=draft.copy(
             products=draft.products.mapIndexed { p,stock ->
@@ -119,13 +119,16 @@ class IndependentDailyTest {
             val quantity=ws.getRow(8).getCell(13)
             val subtotal=ws.getRow(8).getCell(20)
             val total=ws.getRow(39).getCell(5)
+            val sold=ws.getRow(9).getCell(4)
             assertEquals(CellType.BLANK,quantity.cellType)
             assertEquals("",eval.evaluate(subtotal).stringValue)
             assertEquals("",eval.evaluate(total).stringValue)
+            assertEquals("",eval.evaluate(sold).stringValue)
             quantity.setCellValue(0.0)
             eval.clearAllCachedResultValues()
             assertEquals(0.0,eval.evaluate(subtotal).numberValue,0.0)
             assertEquals(0.0,eval.evaluate(total).numberValue,0.0)
+            assertEquals(0.0,eval.evaluate(sold).numberValue,0.0)
         }
         val martil=r.products[1]
         val fromPaper=r.copy(products=listOf(r.products[0],
@@ -183,6 +186,54 @@ class IndependentDailyTest {
         val output=File("build/verification").apply { mkdirs() }
         File(output,"LHS_3_3.pdf").writeBytes(pdf)
         File(output,"LHS_3_3.xlsx").writeBytes(excel)
+    }
+
+    @Test fun automaticSoldAndSalesRecalculateInTheSameProduct() {
+        val blank=newDaily(Identity(sales="maikel",area="sorong"))
+        fun sales(stock:Stock,g:Long?,rtl:Long?)=stock.copy(manualTg=50,sales=stock.sales.mapIndexed { i,sale->
+            when(i) { Tier.G.ordinal->sale.copy(quantity=g);Tier.RTL.ordinal->sale.copy(quantity=rtl);else->sale }
+        })
+        val report=blank.copy(products=blank.products.map { sales(it,200,500) })
+        assertEquals(listOf(10050000L,10750000L,12500000L),report.products.map(Calculation::productTotal))
+        assertEquals(listOf(700L,700L,700L),Product.entries.indices.map { Calculation.stockSold(report,it) })
+        val sold=blank.products[1]
+        assertEquals(200L,Calculation.sold(sales(sold,200,null)))
+        assertEquals(500L,Calculation.sold(sales(sold,null,500)))
+        assertEquals(0L,Calculation.sold(sales(sold,0,0)))
+        assertNull(Calculation.stockSold(blank,1))
+        assertEquals(700L,Calculation.sold(sales(sold,100,600)))
+        assertTrue(runCatching { Calculation.sold(sales(sold,Calculation.MAX,1)) }.isFailure)
+        assertEquals(50L,Calculation.stockTg(report,1))
+        assertEquals("MAIKEL",report.identity.sales)
+        assertEquals("SORONG",report.identity.area)
+
+        val martilOnly=report.copy(products=listOf(blank.products[0],report.products[1],blank.products[2]))
+        val sheets=Layout.dailyWorkbook(martilOnly)
+        val excel=workbook(sheets)
+        val pdf=ByteArrayOutputStream().also { PdfExport.write(sheets,it) }.toByteArray()
+        PDDocument.load(pdf).use { document ->
+            val text=PDFTextStripper().getText(document)
+            listOf("MAIKEL","SORONG","700","10.750.000").forEach { assertTrue("Missing $it",text.contains(it)) }
+        }
+        XSSFWorkbook(excel.inputStream()).use { book ->
+            val ws=book.getSheetAt(0)
+            val soldCell=ws.getRow(17).getCell(4)
+            val retail=ws.getRow(18).getCell(13)
+            val total=ws.getRow(19).getCell(20)
+            assertEquals(CellType.FORMULA,soldCell.cellType)
+            assertEquals("IF(COUNT(N17,N19)=0,\"\",SUM(N17,N19))",soldCell.cellFormula)
+            assertEquals(700.0,soldCell.numericCellValue,0.0)
+            val evaluator=book.creationHelper.createFormulaEvaluator()
+            retail.setCellValue(600.0)
+            evaluator.clearAllCachedResultValues()
+            assertEquals(800.0,evaluator.evaluate(soldCell).numberValue,0.0)
+            assertEquals(12300000.0,evaluator.evaluate(total).numberValue,0.0)
+            assertEquals(12300000.0,evaluator.evaluate(ws.getRow(39).getCell(5)).numberValue,0.0)
+            assertEquals(50.0,ws.getRow(20).getCell(4).numericCellValue,0.0)
+        }
+        val output=File("build/verification").apply { mkdirs() }
+        File(output,"LHS_3_5.pdf").writeBytes(pdf)
+        File(output,"LHS_3_5.xlsx").writeBytes(excel)
     }
 
 }

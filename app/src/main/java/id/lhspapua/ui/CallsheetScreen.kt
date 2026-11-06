@@ -11,6 +11,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import id.lhspapua.domain.*
 import java.io.File
+import java.util.Locale
 
 @Composable internal fun CallsheetScreen(r:CallReport,state:UiState,vm:LhsViewModel,save:(List<File>)->Unit,share:(List<File>)->Unit) {
     var review by rememberSaveable(r.id) { mutableStateOf(r.completed) }
@@ -48,7 +49,7 @@ import java.io.File
             }
             TextInput("Cari atau tambah outlet",query,tag="outlet-search") { query=it }
             if(query.isNotBlank()) {
-                val visits=r.activeOutlets().filter { it.name.contains(query,true)||it.address.contains(query,true) }
+                val visits=r.activeOutlets().filter { OutletSearch.matchesText(it.name,query)||OutletSearch.matchesText(it.address,query) }
                 if(visits.isNotEmpty())Text("Kunjungan hari ini",style=MaterialTheme.typography.titleSmall)
                 visits.forEach { o->VisitRow(r.activeOutlets().indexOf(o)+1,o,{ selected=o.id;editing=true },{ vm.call { it.copy(outlets=it.outlets.filterNot { row->row.id==o.id }) } }) }
                 val suggestions=directory.filterNot { saved->visits.any { it.name.equals(saved.name,true)&&it.address.equals(saved.address,true) } }
@@ -64,7 +65,7 @@ import java.io.File
             Text(if(editing)"Edit Kunjungan" else "Kunjungan Baru",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
             TextInput("Nama Outlet",outlet.name) { name->vm.call { it.copy(outlets=it.outlets.map { row->if(row.id==outlet.id)row.copy(name=name) else row }) } }
             val suggestions=OutletSearch.matches(outlet.name,state.settings,state.calls.filterNot { it.id==r.id }).filterNot { it.name.equals(outlet.name,true)&&it.address==outlet.address }
-            if(outlet.name.isNotBlank())suggestions.take(3).forEach { saved->OutletSuggestion(saved) { vm.call { it.copy(outlets=it.outlets.map { row->if(row.id==outlet.id)row.copy(name=saved.name,address=saved.address) else row }) } } }
+            if(outlet.name.isNotBlank())suggestions.take(3).forEach { saved->OutletSuggestion(saved) { vm.call { it.copy(outlets=it.outlets.map { row->if(row.id==outlet.id)row.copy(name=saved.name.uppercase(Locale.ROOT),address=saved.address.uppercase(Locale.ROOT)) else row }) } } }
             TextInput("Alamat",outlet.address,true) { address->vm.call { it.copy(outlets=it.outlets.map { row->if(row.id==outlet.id)row.copy(address=address) else row }) } }
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                 Text("PRODUK",Modifier.weight(1.5f),style=MaterialTheme.typography.labelMedium);Text("STOK",Modifier.weight(1f),style=MaterialTheme.typography.labelMedium);Text("JUAL",Modifier.weight(1f),style=MaterialTheme.typography.labelMedium)
