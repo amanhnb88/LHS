@@ -16,7 +16,7 @@ jobs:
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
-       github.event.before == 'a04a22b3d6fe9032a6fb1663097ed90f1b91d621')
+       github.event.before == 'd1224506970c2d5d5a7151338b0ce701a9b5378a')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:

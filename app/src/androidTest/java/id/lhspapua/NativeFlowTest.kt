@@ -42,18 +42,18 @@ class NativeFlowTest {
 
     @Test fun nativeCompactCallInput() {
         start()
+        val vm=compose.runOnIdle { ViewModelProvider(compose.activity)[LhsViewModel::class.java] }
+        compose.runOnIdle { vm.rememberProfile(vm.state.value.settings.profile.copy(sales="Sales Uji Perangkat")) }
+        compose.waitUntil(15000) { vm.state.value.pending==0 && !vm.state.value.saveFailed }
         tab("calls").performClick()
         click("Buat Laporan Baru")
-        if(compose.onAllNodesWithTag("Nama Sales").fetchSemanticsNodes().isEmpty())click("Ubah tanggal / identitas")
-        compose.onNodeWithTag("Nama Sales").performScrollTo().performTextReplacement("Sales Uji Perangkat")
-        hideIme()
-        click("Gunakan Identitas");click("Tambah Outlet")
+        click("Tambah Outlet")
         compose.onNodeWithTag("Nama Outlet").performScrollTo().performTextReplacement("Toko Uji")
         compose.onNodeWithTag("Alamat").performScrollTo().performTextReplacement("Jayapura")
         val field=compose.onNodeWithTag("call-1-sold").performScrollTo()
+        field.performTextReplacement("200")
         field.performTouchInput { click() }
         compose.waitUntil(15000) { imeVisible() }
-        field.performTextReplacement("200")
         compose.onNodeWithText("Simpan & Tambah Outlet").assertDoesNotExist()
         back()
         compose.waitUntil(10000) { !imeVisible() }
