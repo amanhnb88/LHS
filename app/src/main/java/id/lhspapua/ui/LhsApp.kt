@@ -75,7 +75,10 @@ import java.io.File
     }
     val snackbar=remember { SnackbarHostState() }
     DisposableEffect(vm,lifecycle) {
-        val observer=LifecycleEventObserver { _,event->if(event==Lifecycle.Event.ON_PAUSE||event==Lifecycle.Event.ON_STOP)vm.flushPending() }
+        val observer=LifecycleEventObserver { _,event ->
+            if(event==Lifecycle.Event.ON_PAUSE || event==Lifecycle.Event.ON_STOP)vm.flushPending()
+            if(event==Lifecycle.Event.ON_RESUME)vm.refreshSalesDate()
+        }
         lifecycle.lifecycle.addObserver(observer);onDispose { lifecycle.lifecycle.removeObserver(observer) }
     }
     LaunchedEffect(state.error) { state.error?.let { message->snackbar.showSnackbar(message,withDismissAction=true);vm.error(null) } }
@@ -175,14 +178,15 @@ import java.io.File
                         pages.SaveableStateProvider(page) {
                             when(state.screen) {
                                 "home" -> HomeScreen(state,vm)
-                                "calls","days" -> ReportHub(state.screen=="days",state,vm)
+                                "calls","days" -> ReportHub(state.screen=="days",vm)
                                 "call" -> state.call?.let { CallsheetScreen(it,state,vm,::saveFiles,::share) }
                                 "day" -> state.day?.let {
                                     DailyScreen(it,state,vm,::saveFiles,::share,{ attachment.launch(arrayOf("image/*","application/pdf")) }) {
                                         openSettings("lanjutan")
                                     }
                                 }
-                                "history" -> HistoryScreen(state,vm)
+                                "drafts" -> ReportsScreen(state,vm,drafts=true)
+                                "history" -> ReportsScreen(state,vm,drafts=false)
                                 "settings" -> ScrollPage(pageKey=settingsSection) {
                                     SettingsScreen(settingsSection,{ settingsSection=it },state,vm,backup={ vm.backup(::save) },restore={ restore.launch(arrayOf("application/zip","application/octet-stream")) })
                                     SaveStatus(state,vm)

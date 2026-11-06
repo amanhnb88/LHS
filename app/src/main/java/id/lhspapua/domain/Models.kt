@@ -19,7 +19,8 @@ import java.util.UUID
 @Serializable data class Outlet(val id: String = UUID.randomUUID().toString(), val name: String = "", val address: String = "", val quantities: List<Quantity> = List(3) { Quantity() })
 fun Outlet.untouched() = name.isBlank() && address.isBlank() && quantities.all { it.stock==null && it.sold==null }
 fun CallReport.activeOutlets() = outlets.filterNot { it.untouched() }
-@Serializable data class CallReport(val id: String = UUID.randomUUID().toString(), val identity: Identity = Identity(), val outlets: List<Outlet> = emptyList(), val completed: Boolean = false)
+@Serializable data class CallReport(val id: String = UUID.randomUUID().toString(), val identity: Identity = Identity(), val outlets: List<Outlet> = emptyList(), val completed: Boolean = false,
+    val createdAt: String? = null, val updatedAt: String? = null, val completedAt: String? = null)
 @Serializable data class Sale(val quantity: Long? = null, val price: Long? = null, val applicable: Boolean = true)
 @Serializable data class Stock(val delivery: Long? = null, val sample: Long? = null, val bonus: Long? = null, val manualTg: Long? = null, val sales: List<Sale> = List(3) { Sale() }, val opening: Long? = null, val openingTracked: Boolean = false, val manualSold: Long? = null)
 @Serializable data class Tester(val delivery: Long? = null, val sample: Long? = null, val manualTg: Long? = null, val opening: Long? = null, val openingTracked: Boolean = false)
@@ -39,7 +40,8 @@ fun CallReport.activeOutlets() = outlets.filterNot { it.untouched() }
     val stockSequence: Int = 1, val openingMode: OpeningMode = OpeningMode.AUTO,
     val stockSourceId: String? = null, val sourceRevision: Long? = null,
     val revision: Long = 0, val stockStale: Boolean = false, val stockIssue: String = "",
-    val openingNote: String = "", val finalizedAt: String? = null, val wasFinalized: Boolean = false) {
+    val openingNote: String = "", val finalizedAt: String? = null, val wasFinalized: Boolean = false,
+    val createdAt: String? = null, val updatedAt: String? = null) {
     val usesLedger: Boolean get() = formatVersion == 2
     val independent: Boolean get() = formatVersion in 3..4
     val automaticSold: Boolean get() = formatVersion == 4

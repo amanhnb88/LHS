@@ -119,4 +119,49 @@ class PersistenceTest {
         assertEquals(old,repo.daily(old.id));assertEquals(before,repo.daily(next.id));db.close();Unit
     }
 
+    @Test fun timestampsTrackDurableChangesAndActualFinalizationOnly() = runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        val db=Room.inMemoryDatabaseBuilder(context,LhsDatabase::class.java).build()
+        try {
+            val created="2026-11-07T04:00:00Z"
+            val edited="2026-11-07T05:35:00Z"
+            val final="2026-11-07T09:45:00Z"
+            val again="2026-11-07T10:00:00Z"
+            fun repo(at:String)=Repository(context,db,java.time.Clock.fixed(java.time.Instant.parse(at),java.time.ZoneOffset.UTC))
+            val call=CallReport(createdAt=created)
+            val day=newDaily(Identity()).copy(createdAt=created)
+            val legacy=CallReport(completed=true)
+            repo(created).apply { save(call);save(day);save(legacy) }
+            assertEquals(created,repo(created).call(call.id)!!.updatedAt)
+            assertEquals(created,repo(created).daily(day.id)!!.updatedAt)
+            assertNull(repo(created).call(legacy.id)!!.completedAt)
+            repo(edited).save(call.copy(outlets=listOf(Outlet(name="TOKO"))))
+            repo(edited).save(day.copy(finance=Finance(notes="EDIT")))
+            val editedCall=repo(final).call(call.id)!!
+            val editedDay=repo(final).daily(day.id)!!
+            assertEquals(created,editedCall.createdAt)
+            assertEquals(created,editedDay.createdAt)
+            assertEquals(edited,editedCall.updatedAt)
+            assertEquals(edited,editedDay.updatedAt)
+            repo(final).apply { save(editedCall);save(editedDay);completeCall(call.id);finalizeDay(day.id) }
+            val finishedCall=repo(again).call(call.id)!!
+            val finishedDay=repo(again).daily(day.id)!!
+            assertEquals(edited,finishedCall.updatedAt)
+            assertEquals(edited,finishedDay.updatedAt)
+            assertEquals(final,finishedCall.completedAt)
+            assertEquals(final,finishedDay.finalizedAt)
+            repo(again).apply {
+                save(finishedCall.copy(completed=false))
+                reopen(day.id)
+                assertNull(this.call(call.id)!!.completedAt)
+                assertNull(daily(day.id)!!.finalizedAt)
+                assertEquals(again,completeCall(call.id).completedAt)
+                assertEquals(again,finalizeDay(day.id).reports.single().finalizedAt)
+                assertNull(this.call(legacy.id)!!.createdAt)
+                assertNull(this.call(legacy.id)!!.updatedAt)
+            }
+        } finally { db.close() }
+        Unit
+    }
+
 }

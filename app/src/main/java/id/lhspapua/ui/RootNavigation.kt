@@ -27,6 +27,7 @@ internal enum class RootTab(val route:String,val label:String,val title:String,v
     HOME("home","Beranda","LHS Papua",R.drawable.nav_home),
     CALLSHEET("calls","Callsheet","Callsheet",R.drawable.nav_store),
     DAILY("days","LHS","Laporan Harian",R.drawable.nav_report),
+    DRAFT("drafts","Draft","Draft",R.drawable.nav_draft),
     HISTORY("history","Riwayat","Riwayat",R.drawable.nav_history);
 
     companion object {
@@ -55,7 +56,7 @@ internal enum class RootTab(val route:String,val label:String,val title:String,v
                 selected=selected==tab.route,
                 onClick={ select(tab.route) },
                 icon={ Icon(painterResource(tab.icon),contentDescription=null) },
-                label={ Text(tab.label,maxLines=1) }
+                label={ Text(tab.label,maxLines=1,style=MaterialTheme.typography.labelSmall) }
             )
         }
     }

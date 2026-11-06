@@ -72,7 +72,7 @@ class NativeFlowTest {
         compose.waitUntil(15000) { imeVisible() }
         field.performScrollTo().assertIsDisplayed()
         tab("calls").assertIsDisplayed().assertIsSelected()
-        listOf("home","days","history").forEach { tab(it).assertIsDisplayed() }
+        listOf("home","days","drafts","history").forEach { tab(it).assertIsDisplayed() }
         compose.onNode(hasText("Simpan & Tambah Outlet") and hasClickAction()).performTouchInput { click() }
         compose.waitUntil(15000) { !imeVisible() }
         compose.onNodeWithTag("Nama Outlet").assertExists()
@@ -103,7 +103,7 @@ class NativeFlowTest {
         val vm=compose.runOnIdle { ViewModelProvider(compose.activity)[LhsViewModel::class.java] }
         compose.waitUntil(20000) { vm.state.value.ready && vm.state.value.pending==0 }
         val counts=runBlocking { vm.repository.calls.first().size to vm.repository.allDaily().size }
-        for(route in listOf("calls","days","history","home")) {
+        for(route in listOf("calls","days","drafts","history","home")) {
             tab(route).performClick()
             tab(route).assertIsSelected()
         }

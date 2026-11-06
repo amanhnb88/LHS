@@ -14,6 +14,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import java.io.File
+import java.time.Instant
 import java.time.LocalDate
 import java.util.Locale
 
@@ -24,10 +25,26 @@ data class UiState(
     val notice:String?=null,val saveFailed:Boolean=false,val previewTitle:String="Pratinjau PDF",
     val focusTag:String="",val focusSerial:Long=0,val lastId:String?=null,val lastType:String?=null)
 
+internal data class DashboardUi(val period:SalesPeriod,val sales:String?,val summary:SalesDashboard)
+
 class LhsViewModel(app:Application,private val navigation:SavedStateHandle=SavedStateHandle()):AndroidViewModel(app) {
     val repository=Repository(app)
     private val mutable=MutableStateFlow(UiState())
     val state=mutable.asStateFlow()
+    private val salesDate=MutableStateFlow(ReportTime.date(Instant.now()))
+    private val selectedPeriod=MutableStateFlow(SalesPeriod.WEEK)
+    private val selectedSales=MutableStateFlow<String?>(null)
+    internal val dashboard=combine(
+        state.map { it.days }.distinctUntilChanged(),salesDate,selectedPeriod,selectedSales
+    ) { reports,today,period,sales ->
+        val summary=SalesDashboard.summarize(reports,today,period,sales)
+        DashboardUi(period,sales,summary)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope,SharingStarted.WhileSubscribed(5_000),null)
+
+    internal fun dashboardPeriod(period:SalesPeriod) { selectedPeriod.value=period }
+    internal fun dashboardSales(sales:String?) { selectedSales.value=sales }
+    internal fun refreshSalesDate() { salesDate.value=ReportTime.date(Instant.now()) }
+
     private val jobs=Channel<suspend ()->Unit>(Channel.UNLIMITED)
     private var dayTicket=0L
     private val prefs=app.getSharedPreferences("navigation",0)
@@ -160,6 +177,7 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
     fun error(message:String?) { mutable.update { it.copy(error=message) } }
     fun dismissNotice() { mutable.update { it.copy(notice=null) } }
     fun navigate(screen:String) {
+        if(screen=="home")refreshSalesDate()
         val root=screen.takeIf { it in RootTab.routes } ?: state.value.root
         navigation["screen"]=screen
         navigation["root"]=root
@@ -190,12 +208,18 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
         }
     }
 
-    fun newCall() { if(state.value.busy)return;val r=CallReport(identity=state.value.settings.profile.uppercaseFields().copy(date=LocalDate.now().toString()));open(r);saveCall(r) }
+    fun newCall() {
+        if(state.value.busy)return
+        val now=Instant.now()
+        val identity=state.value.settings.profile.uppercaseFields().copy(date=ReportTime.date(now).toString())
+        val r=CallReport(identity=identity,createdAt=now.toString())
+        open(r);saveCall(r)
+    }
     fun newDay() {
         if(state.value.busy)return
-        val s=state.value.settings
-        val identity=s.profile.copy(date=LocalDate.now().toString())
-        val r=newDaily(identity)
+        val now=Instant.now()
+        val identity=state.value.settings.profile.copy(date=ReportTime.date(now).toString())
+        val r=newDaily(identity).copy(createdAt=now.toString())
         open(r);saveDay(r)
     }
     fun open(r:CallReport) {
@@ -214,7 +238,9 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
     }
     fun call(change:(CallReport)->CallReport) {
         if(state.value.busy)return
-        val r=change(state.value.call ?: return).copy(completed=false)
+        val old=state.value.call ?: return
+        val r=change(old).copy(completed=false,completedAt=null)
+        if(r==old)return
         mutable.update { it.copy(call=r,pdf=null,xlsx=null) };saveCall(r)
     }
     fun day(change:(DailyReport)->DailyReport) {
@@ -222,6 +248,7 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
         val old=state.value.day ?: return
         if(old.status==ReportStatus.FINAL) { error("Buka kembali laporan sebelum mengubahnya.");return }
         val r=change(old)
+        if(r==old)return
         mutable.update { it.copy(day=r,pdf=null,xlsx=null) };saveDay(r)
     }
     fun enableAutomaticSold() {
@@ -309,11 +336,13 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
     fun completeCall(onReady:()->Unit) {
         if(state.value.busy)return
         val r=state.value.call ?: return
+        mutable.update { it.copy(busy=true) }
         enqueue(dataWrite=true) {
-            val saved=repository.call(r.id) ?: r
-            require(Calculation.errors(saved).isEmpty()) { "Periksa jumlah outlet sebelum menyelesaikan laporan." }
-            val final=saved.copy(completed=true);repository.save(final)
-            mutable.update { it.copy(call=final) };withContext(Dispatchers.Main) { onReady() }
+            try {
+                val final=repository.completeCall(r.id)
+                mutable.update { if(it.call?.id==r.id) it.copy(call=final) else it }
+                withContext(Dispatchers.Main) { onReady() }
+            } finally { mutable.update { it.copy(busy=false) } }
         }
     }
 
@@ -333,13 +362,17 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
     fun reopen(onReady:()->Unit) {
         if(state.value.busy)return
         val r=state.value.day ?: return
+        mutable.update { it.copy(busy=true) }
         enqueue {
-            val result=repository.reopen(r.id)
-            mutable.update { it.copy(day=result.reports.first { d->d.id==r.id },pdf=null,xlsx=null,
-                notice=if(result.affected.isNotEmpty()) "Laporan terkait akan diperiksa ulang karena sumber stok dibuka kembali." else it.notice) }
-            withContext(Dispatchers.Main) { onReady() }
+            try {
+                val result=repository.reopen(r.id)
+                mutable.update { it.copy(day=result.reports.first { d->d.id==r.id },pdf=null,xlsx=null,
+                    notice=if(result.affected.isNotEmpty()) "Laporan terkait akan diperiksa ulang karena sumber stok dibuka kembali." else it.notice) }
+                withContext(Dispatchers.Main) { onReady() }
+            } finally { mutable.update { it.copy(busy=false) } }
         }
     }
+
     fun saveRules(rules:Rules) {
         settings { it.copy(rules=rules) }
         if(state.value.day?.let { !it.independent && it.status==ReportStatus.DRAFT }==true)day { it.copy(rules=rules) }

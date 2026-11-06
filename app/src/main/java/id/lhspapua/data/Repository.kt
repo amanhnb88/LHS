@@ -10,25 +10,60 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.time.Clock
 import java.util.UUID
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
-class Repository(private val context: Context, private val db: LhsDatabase = LhsDatabase.get(context)) {
+class Repository(private val context: Context, private val db: LhsDatabase = LhsDatabase.get(context), private val clock: Clock = Clock.systemUTC()) {
     val json = Json { encodeDefaults = true; ignoreUnknownKeys = true }
     private val dao = db.dao()
     val calls = dao.calls().map { rows -> rows.map { json.decodeFromString<CallReport>(it.payload) } }
     val daily = dao.daily().map { rows -> rows.map { json.decodeFromString<DailyReport>(it.payload) } }
     suspend fun settings() = dao.settings()?.let { json.decodeFromString<Settings>(it.payload) } ?: Settings()
     suspend fun save(s: Settings) { Calculation.validate(s); dao.save(SettingsEntity(payload=json.encodeToString(s))) }
-    suspend fun save(r: CallReport) { Calculation.validate(r); dao.save(CallEntity(r.id,r.identity.date,r.identity.sales,json.encodeToString(r))) }
+    private fun now() = clock.instant().toString()
+    private suspend fun writeCall(r: CallReport) {
+        Calculation.validate(r)
+        dao.save(CallEntity(r.id,r.identity.date,r.identity.sales,json.encodeToString(r)))
+    }
+
+    suspend fun save(r: CallReport) = db.withTransaction {
+        val old=call(r.id)
+        val saved=if(old==null) r.copy(updatedAt=r.updatedAt ?: r.createdAt?.let { now() }) else r.copy(
+            createdAt=old.createdAt,
+            updatedAt=if(r.identity!=old.identity || r.outlets!=old.outlets) now() else old.updatedAt,
+            completedAt=when {
+                !r.completed -> null
+                !old.completed -> now()
+                else -> old.completedAt
+            }
+        )
+        if(saved!=old)writeCall(saved)
+        saved
+    }
+
+    suspend fun completeCall(id:String) = db.withTransaction {
+        val existing=call(id) ?: error("Laporan tidak ditemukan.")
+        require(Calculation.errors(existing).isEmpty()) { "Periksa jumlah outlet sebelum menyelesaikan laporan." }
+        save(existing.copy(completed=true))
+    }
+
     suspend fun save(r: DailyReport) { saveDay(r) }
     private suspend fun writeDay(r:DailyReport) { Calculation.validate(r); dao.save(DailyEntity(r.id,r.identity.date,r.identity.sales,json.encodeToString(r))) }
     suspend fun allDaily() = dao.allDaily().map { json.decodeFromString<DailyReport>(it.payload) }
-    suspend fun saveDay(r:DailyReport):StockLedger.Result = db.withTransaction {
+    suspend fun saveDay(report:DailyReport):StockLedger.Result = db.withTransaction {
+        val old=daily(report.id)
+        val r=if(old==null) report.copy(updatedAt=report.updatedAt ?: report.createdAt?.let { now() }) else {
+            val sameContent=report.copy(
+                createdAt=old.createdAt,updatedAt=old.updatedAt,finalizedAt=old.finalizedAt,
+                wasFinalized=old.wasFinalized,status=old.status,revision=old.revision
+            )==old
+            report.copy(createdAt=old.createdAt,updatedAt=if(sameContent) old.updatedAt else now())
+        }
         if(r.independent) {
-            writeDay(r)
+            if(r!=old)writeDay(r)
             return@withTransaction StockLedger.Result(listOf(r),emptyList())
         }
         val before=allDaily()
@@ -38,10 +73,11 @@ class Repository(private val context: Context, private val db: LhsDatabase = Lhs
     }
     suspend fun finalizeDay(id:String):StockLedger.Result = db.withTransaction {
         val existing=daily(id) ?: error("Laporan tidak ditemukan.")
+        if(existing.status==ReportStatus.FINAL)return@withTransaction StockLedger.Result(listOf(existing),emptyList())
         val prepared=saveDay(existing).reports.first { it.id==id }
         val errors=Calculation.errors(prepared)
         require(errors.isEmpty()) { errors.joinToString("\n") }
-        saveDay(prepared.copy(status=ReportStatus.FINAL,wasFinalized=true,finalizedAt=java.time.Instant.now().toString()))
+        saveDay(prepared.copy(status=ReportStatus.FINAL,wasFinalized=true,finalizedAt=now()))
     }
     suspend fun reopen(id:String):StockLedger.Result = db.withTransaction {
         val r=daily(id) ?: error("Laporan tidak ditemukan.")
@@ -134,7 +170,7 @@ class Repository(private val context: Context, private val db: LhsDatabase = Lhs
                     val replacement=a.copy(file="${UUID.randomUUID()}.${a.file.substringAfterLast('.')}")
                     val f=attachment(replacement); f.parentFile!!.mkdirs(); source.copyTo(f); newFiles.add(f); replacement
                 } }) }
-                db.withTransaction { data.calls.forEach { save(it) }; restored.forEach { writeDay(it) }; save(data.settings)
+                db.withTransaction { data.calls.forEach { writeCall(it) }; restored.forEach { writeDay(it) }; save(data.settings)
                     val all=allDaily()
                     all.firstOrNull { it.usesLedger }?.let { changed ->
                         StockLedger.reconcile(all,changed).reports.filter { it.usesLedger }.forEach { writeDay(it) }

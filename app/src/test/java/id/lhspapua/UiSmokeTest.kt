@@ -86,7 +86,11 @@ class UiSmokeTest {
         awaitState("Android Back returns to Callsheet hub") { vm.state.value.screen=="calls" }
         compose.onNodeWithTag("tab-calls").assertIsSelected()
         saved();assertEquals(count,vm.state.value.calls.size)
-        compose.onAllNodesWithText("Lanjutkan").onFirst().performClick();assertEquals(id,vm.state.value.call!!.id)
+        val beforeOpen=runBlocking { vm.repository.call(id) }!!.updatedAt
+        assertNotNull(beforeOpen)
+        compose.onNodeWithTag("tab-drafts").performClick()
+        click("Lanjutkan");assertEquals(id,vm.state.value.call!!.id)
+        assertEquals(beforeOpen,runBlocking { vm.repository.call(id) }!!.updatedAt)
         compose.onNodeWithText("1. TOKO AIMAS").performScrollTo().assertExists()
         val restored = vm.state.value.call!!.activeOutlets().single().quantities
         assertEquals(Quantity(sold=200), restored[1])
@@ -202,8 +206,12 @@ class UiSmokeTest {
         compose.onNodeWithText("Simpan PDF").performScrollTo().assertIsEnabled()
         click("Excel")
         compose.onNodeWithText("Simpan Excel").performScrollTo().assertIsEnabled()
+        saved()
+        val reportId=vm.state.value.day!!.id
+        val beforeExport=runBlocking { vm.repository.daily(reportId) }!!.updatedAt
         compose.runOnIdle { vm.export() };saved()
         compose.runOnIdle { vm.export(ExportFormat.EXCEL) };saved()
+        assertEquals(beforeExport,runBlocking { vm.repository.daily(reportId) }!!.updatedAt)
         assertTrue((vm.state.value.pdf?.length() ?: 0L) > 0L)
         assertTrue((vm.state.value.xlsx?.length() ?: 0L) > 0L)
         click("Selesaikan Laporan");saved()
@@ -226,6 +234,10 @@ class UiSmokeTest {
     }
     @Test @Config(sdk=[34],qualifiers="en-rUS-w360dp-h640dp") fun smallScreenLargeFontAndSyntheticKeyboardUseInsetsOnce() {
         compose.runOnIdle { compose.activity.setContent { val density=LocalDensity.current;CompositionLocalProvider(LocalDensity provides Density(density.density,1.3f)) { LhsApp(vm) } } }
+        val orderedTabs=listOf("home","calls","days","drafts","history")
+        val tabs=orderedTabs.map { compose.onNodeWithTag("tab-$it").assertIsDisplayed().fetchSemanticsNode().boundsInRoot }
+        assertTrue(tabs.zipWithNext().all { (left,right)->left.right<=right.left })
+        assertTrue(tabs.maxOf { it.width }-tabs.minOf { it.width }<=1f)
         newCall();click("Tambah Outlet");text("Nama Outlet","Toko Layar Kecil");text("call-0-sold","250")
         compose.runOnIdle {
             val insets=androidx.core.view.WindowInsetsCompat.Builder().setInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars(),androidx.core.graphics.Insets.of(0,24,0,24)).setInsets(androidx.core.view.WindowInsetsCompat.Type.ime(),androidx.core.graphics.Insets.of(0,0,0,280)).setVisible(androidx.core.view.WindowInsetsCompat.Type.ime(),true).build()
@@ -270,7 +282,7 @@ class UiSmokeTest {
         newCall()
         val id=vm.state.value.call!!.id
         saved()
-        compose.onNodeWithTag("tab-calls").performClick()
+        compose.onNodeWithTag("tab-drafts").performClick()
         click("Hapus Draft")
         compose.onNodeWithText("Hapus Draft?").assertExists()
         click("Batal")
@@ -281,6 +293,64 @@ class UiSmokeTest {
         assertNull(runBlocking { vm.repository.call(id) })
     }
 
+    @Test fun draftAndHistoryFollowStatusAndHomeOnlyShowsFinalDailySales() {
+        val today=ReportTime.date(java.time.Instant.now()).toString()
+        val identity=Identity(date=today,sales="MAIKEL")
+        val created="2026-11-07T05:35:00Z"
+        val draftCall=CallReport(identity=identity,createdAt=created)
+        val finalCall=CallReport(identity=identity,completed=true,
+            outlets=listOf(Outlet(name="TOKO",quantities=listOf(Quantity(sold=1000),Quantity(),Quantity()))))
+        val base=newDaily(identity)
+        val draftDay=base.copy(createdAt=created,products=base.products.mapIndexed { index,stock ->
+            if(index==1) stock.copy(sales=stock.sales.replace(2,stock.sales[2].copy(quantity=500))) else stock
+        })
+        val finalDay=draftDay.copy(id=java.util.UUID.randomUUID().toString(),status=ReportStatus.FINAL,finalizedAt=created)
+        runBlocking {
+            vm.repository.save(draftCall)
+            vm.repository.save(finalCall)
+            vm.repository.save(draftDay)
+            vm.repository.save(finalDay)
+        }
+        awaitState("Four reports in Room") { vm.state.value.calls.size==2 && vm.state.value.days.size==2 }
+        compose.waitUntil(15000) { compose.onAllNodes(hasTestTag("sales-today") and hasText("Rp7.750.000")).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("sales-today").assertTextEquals("Rp7.750.000")
+        compose.onNodeWithTag("sales-period-1").performScrollTo().performClick()
+        compose.waitUntil(15000) { compose.onAllNodes(hasTestTag("sales-period-1") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("sales-period-2").performClick()
+        compose.waitUntil(15000) { compose.onAllNodes(hasTestTag("sales-period-2") and isSelected()).fetchSemanticsNodes().isNotEmpty() }
+        snapshot("STAGE37_DASHBOARD")
+
+        compose.onNodeWithTag("tab-drafts").performClick().assertIsSelected()
+        compose.onNodeWithTag("report-${draftCall.id}").assertExists()
+        compose.onNodeWithTag("report-${draftDay.id}").assertExists()
+        compose.onNodeWithTag("report-${finalCall.id}").assertDoesNotExist()
+        compose.onNodeWithTag("report-${finalDay.id}").assertDoesNotExist()
+        compose.onAllNodesWithText("Dibuat: 07/11/2026 · 14.35 WIT").onFirst().assertExists()
+        compose.onNodeWithTag("report-filter-2").performClick()
+        compose.onNodeWithTag("report-${draftCall.id}").assertDoesNotExist()
+        compose.onNodeWithTag("report-filter-0").performClick()
+        snapshot("STAGE37_DRAFTS")
+        compose.onNodeWithTag("tab-history").performClick().assertIsSelected()
+        compose.onNodeWithTag("report-${finalCall.id}").assertExists()
+        compose.onNodeWithTag("report-${finalDay.id}").assertExists()
+        compose.onNodeWithTag("report-${draftDay.id}").assertDoesNotExist()
+        compose.onNodeWithText("Diselesaikan: Waktu tidak tercatat").assertExists()
+        snapshot("STAGE37_HISTORY")
+
+        runBlocking {
+            vm.repository.finalizeDay(draftDay.id)
+            vm.repository.reopen(finalDay.id)
+        }
+        awaitState("Reports switch statuses") {
+            vm.state.value.days.any { it.id==finalDay.id && it.status==ReportStatus.DRAFT } &&
+                vm.state.value.days.any { it.id==draftDay.id && it.status==ReportStatus.FINAL }
+        }
+        compose.onNodeWithTag("report-${draftDay.id}").assertExists()
+        compose.onNodeWithTag("report-${finalDay.id}").assertDoesNotExist()
+        compose.onNodeWithTag("tab-drafts").performClick()
+        compose.onNodeWithTag("report-${finalDay.id}").assertExists()
+        compose.onNodeWithTag("report-${draftDay.id}").assertDoesNotExist()
+    }
     @Test fun upgradingAnOldDraftRequiresConfirmationAndKeepsItsManualValue() {
         val initial=newDaily(Identity(sales="Historical Sales")).copy(formatVersion=3)
         val old=initial.copy(products=initial.products.mapIndexed { index,stock ->

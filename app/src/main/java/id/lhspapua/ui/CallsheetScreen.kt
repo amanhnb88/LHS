@@ -37,8 +37,8 @@ import java.util.Locale
         vm.saveOutlet(current)
         if(editing)list() else { add();vm.flushPending() }
     }
-    KeyboardAwareBack { if(state.busy)return@KeyboardAwareBack;when { review->review=false;outlet!=null->list();else->vm.backToRoot() } }
-    if(review) {
+    KeyboardAwareBack { if(state.busy)return@KeyboardAwareBack;when { r.completed->vm.backToRoot();review->review=false;outlet!=null->list();else->vm.backToRoot() } }
+    if(review || r.completed) {
         ReportReview(state,vm,save,share,call=r,onEdit={ vm.call { it };review=false },onIssue={ tag->review=false;selected=tag.outletId;editing=true;vm.focus(tag.field) })
     } else FlowFrame(pageKey="call-${r.id}-${selected ?: "list"}",state=state,vm=vm,
         scroll=if(outlet==null)listScroll else null,primary=if(outlet==null)"Tambah Outlet" else if(editing)"Simpan Perubahan" else "Simpan & Tambah Outlet",
