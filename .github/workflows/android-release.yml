@@ -16,7 +16,7 @@ jobs:
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
-       github.event.before == 'f014c692c6214fbfabadc28f0fd9ecea43138620')
+       github.event.before == '2e6f0afffca5bbbf64d3289c4bbb75e20ce5cc0b')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -84,7 +84,10 @@ jobs:
           adb shell settings put global device_provisioned 1
           adb shell settings put secure user_setup_complete 1
           adb shell settings put global hide_error_dialogs 1
+          adb shell dumpsys battery set ac 1
           adb shell svc power stayon true
+          adb shell settings put system screen_off_timeout 2147483647
+          adb shell locksettings set-disabled true
           adb shell input keyevent KEYCODE_WAKEUP
           adb shell wm dismiss-keyguard
           adb shell settings put secure show_ime_with_hard_keyboard 1
@@ -94,13 +97,15 @@ jobs:
           ime="$(adb shell ime list -s | tr -d '\r' | awk '/latin/ {print; exit}')"
           adb shell ime enable "$ime"
           adb shell ime set "$ime"
-          bash gradlew --no-daemon connectedDebugAndroidTest || {
+          test_result=0
+          bash gradlew --no-daemon connectedDebugAndroidTest || test_result=$?
+          adb pull /sdcard/Download/LHSProof "$RUNNER_TEMP/jpg-proof" ||
+            echo "::warning::JPG visual evidence could not be collected."
+          if [ "$test_result" -ne 0 ]; then
             adb shell dumpsys window > "$RUNNER_TEMP/lhs-window.log"
             adb logcat -d -t 1800 > "$RUNNER_TEMP/lhs-device.log"
-            exit 1
-          }
-          adb pull /sdcard/Download/LHSProof "$RUNNER_TEMP/jpg-proof" ||
-            echo "::warning::JPG tests passed but visual evidence could not be collected."
+          fi
+          exit "$test_result"
       - name: Upload test reports and UI captures
         if: always()
         uses: actions/upload-artifact@v4
