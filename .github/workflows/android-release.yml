@@ -16,7 +16,7 @@ jobs:
     if: >-
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'workflow_dispatch' ||
-       github.event.before == '61feddcfbe20e2e2d8267aa50741ac0e888cdddb')
+       github.event.before == '975f60f5348a960ef20667327ef3083a203f20f5')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -85,7 +85,6 @@ jobs:
           adb shell settings put secure show_ime_with_hard_keyboard 1
           adb shell wm size 720x1280
           adb shell wm density 320
-          adb shell cmd overlay enable-exclusive --category com.android.internal.systemui.navbar.gestural
           bash gradlew --no-daemon connectedDebugAndroidTest
       - name: Upload test reports and UI captures
         if: always()
