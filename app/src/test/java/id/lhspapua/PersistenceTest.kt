@@ -166,7 +166,8 @@ class PersistenceTest {
 
     @Test fun linksAreTransactionalAndRecheckedAtFinalization() = runBlocking {
         val context=ApplicationProvider.getApplicationContext<Context>()
-        Room.inMemoryDatabaseBuilder(context,LhsDatabase::class.java).build().use { db ->
+        val db=Room.inMemoryDatabaseBuilder(context,LhsDatabase::class.java).build()
+        try {
             val repo=Repository(context,db)
             val identity=Identity(date="2026-11-07",sales="MAIKEL",area="SORONG")
             val source=CallReport(identity=identity,completed=true,outlets=listOf(
@@ -220,7 +221,7 @@ class PersistenceTest {
             assertNull(unlinked.callsheetLink)
             assertEquals(draft.products,unlinked.products)
             assertEquals(ReportStatus.FINAL,repo.finalizeDay(draft.id).reports.single().status)
-        }
+        } finally { db.close() }
         Unit
     }
 
@@ -236,9 +237,10 @@ class PersistenceTest {
         val settings=Settings(lhsFeatures=LhsFeatureSettings(true,false,true),integrationMode=IntegrationMode.TERINTEGRASI)
         val dir=java.io.File(context.cacheDir,"exports").apply { mkdirs() }
         val file=java.io.File(dir,"stage39-backup.zip")
-        open().use { db ->
-            val repo=Repository(context,db)
-            db.dao().save(SettingsEntity(payload="{}"))
+        val initialDb=open()
+        try {
+            val repo=Repository(context,initialDb)
+            initialDb.dao().save(SettingsEntity(payload="{}"))
             assertEquals(LhsFeatureSettings(),repo.settings().lhsFeatures)
             assertEquals(IntegrationMode.MANDIRI,repo.settings().integrationMode)
             repo.save(settings)
@@ -247,9 +249,10 @@ class PersistenceTest {
             repo.save(historical)
             repo.changeCallsheetLink(draft.id,source.id,SalesReconciliation.fingerprint(source))
             repo.backup(file)
-        }
-        open().use { db ->
-            val repo=Repository(context,db)
+        } finally { initialDb.close() }
+        val reopenedDb=open()
+        try {
+            val repo=Repository(context,reopenedDb)
             assertEquals(settings,repo.settings())
             assertEquals("PEMBUAT LAMA",repo.daily(historical.id)!!.finance.madeBy)
             val before=repo.daily(draft.id)!!.callsheetLink
@@ -262,7 +265,7 @@ class PersistenceTest {
             assertEquals(before,repo.daily(draft.id)!!.callsheetLink)
             assertEquals(source,repo.call(source.id))
             assertEquals(historical,repo.daily(historical.id))
-        }
+        } finally { reopenedDb.close() }
         context.deleteDatabase(name)
         Unit
     }
