@@ -1,6 +1,7 @@
 @file:OptIn(androidx.compose.ui.test.ExperimentalTestApi::class)
 package id.lhspapua
 
+import android.app.Application
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
@@ -15,10 +16,13 @@ import org.junit.After
 import org.junit.Before
 import androidx.room.Room
 import id.lhspapua.data.LhsDatabase
+import androidx.test.core.app.ApplicationProvider
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
 import org.junit.Rule
+import org.junit.rules.ExternalResource
+import org.junit.rules.RuleChain
 import org.junit.Test
 import org.junit.Assert.*
 import org.junit.runner.RunWith
@@ -30,10 +34,24 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk=[34],qualifiers="en-rUS-w412dp-h915dp")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class UiSmokeTest {
-    @get:Rule val compose=createAndroidComposeRule<MainActivity>()
+    private val compose=createAndroidComposeRule<MainActivity>()
     private lateinit var vm:LhsViewModel
     private lateinit var database:LhsDatabase
     private val databaseInstance get()=LhsDatabase::class.java.getDeclaredField("instance").apply { isAccessible=true }
+
+    @get:Rule val testRules:RuleChain=RuleChain.outerRule(object:ExternalResource() {
+        override fun before() {
+            val app=ApplicationProvider.getApplicationContext<Application>()
+            database=Room.inMemoryDatabaseBuilder(app,LhsDatabase::class.java).build()
+            databaseInstance.set(null,database)
+            app.getSharedPreferences("navigation",0).edit().clear().commit()
+            app.getSharedPreferences("draft-journal",0).edit().clear().commit()
+        }
+
+        override fun after() {
+            databaseInstance.set(null,null)
+        }
+    }).around(compose)
 
     // StateFlow reads alone do not drain Robolectric's paused Android main queue.
     // runOnIdle synchronizes both Compose and Android callbacks before checking IO completion.
@@ -45,27 +63,9 @@ class UiSmokeTest {
         }
     }
     @Before fun isolate() {
-        val activityJob=compose.runOnIdle {
-            val activity=compose.activity
-            val initial=ViewModelProvider(activity)[LhsViewModel::class.java]
-            val job=checkNotNull(initial.viewModelScope.coroutineContext[Job])
-            activity.setContent {}
-            activity.viewModelStore.clear()
-            job
-        }
-        compose.waitUntil(15000) { activityJob.isCompleted }
-        compose.runOnIdle {
-            // Replace the database only after the activity's report collectors have stopped.
-            (databaseInstance.get(null) as? LhsDatabase)?.close()
-            database=Room.inMemoryDatabaseBuilder(compose.activity.application,LhsDatabase::class.java).build()
-            databaseInstance.set(null,database)
-            compose.activity.application.getSharedPreferences("navigation",0).edit().clear().commit()
-            compose.activity.application.getSharedPreferences("draft-journal",0).edit().clear().commit()
-            vm=LhsViewModel(compose.activity.application)
-            compose.activity.setContent { LhsApp(vm) }
-        }
+        vm=compose.runOnIdle { ViewModelProvider(compose.activity)[LhsViewModel::class.java] }
         awaitState("Application initialization") { vm.state.value.ready }
-        vm.navigate("home")
+        compose.runOnIdle { vm.navigate("home") }
     }
     @After fun releaseScenario() {
         if(::vm.isInitialized) {
@@ -73,11 +73,9 @@ class UiSmokeTest {
                 compose.activity.setContent {}
                 checkNotNull(vm.viewModelScope.coroutineContext[Job]).also { it.cancel() }
             }
-            // Cancel is asynchronous: wait while Compose drains Main and Room finishes active queries.
-            compose.waitUntil(15000) { job.isCompleted }
+            compose.waitUntil(15000) { compose.runOnIdle { job.isCompleted } }
         }
-        if(::database.isInitialized)database.close()
-        databaseInstance.set(null,null)
+        database.close()
     }
     private fun click(text:String) { val node=compose.onNode(hasText(text) and hasClickAction());runCatching { node.performScrollTo() };node.performClick() }
     private fun text(tag:String,value:String) { compose.onNodeWithTag(tag).performScrollTo().performTextReplacement(value) }
