@@ -57,11 +57,29 @@ class Repository(private val context: Context, private val db: LhsDatabase = Lhs
         val old=daily(report.id)
         require(old?.status!=ReportStatus.FINAL) { "Buka kembali laporan sebelum menyimpan perubahan." }
         require(old==null || report.status==ReportStatus.DRAFT) { "Gunakan Selesaikan Laporan untuk finalisasi." }
+        if(old!=null) Calculation.validateSalesEdit(old,report)
+        else require(Calculation.modeConflicts(report).isEmpty()) { Calculation.modeConflicts(report).joinToString("\n") }
         val edit=report.copy(
             callsheetLink=old?.callsheetLink,
             automaticMadeBy=old?.automaticMadeBy ?: report.automaticMadeBy
         )
         persistDay(if(edit.automaticMadeBy)edit.copy(finance=edit.finance.copy(madeBy=edit.identity.uppercaseFields().sales)) else edit,old)
+    }
+
+    /** Explicit mode transition, serialized with report writes and committed with its default. */
+    suspend fun changeIntegrationMode(mode:IntegrationMode, reportId:String?=null, expected:DailyReport?=null):DailyReport? = db.withTransaction {
+        val updated=reportId?.let { id ->
+            val report=daily(id) ?: error("Draft tidak ditemukan.")
+            require(report.status==ReportStatus.DRAFT && report.automaticSold) { "Mode hanya dapat diubah pada draft Jual Otomatis." }
+            require(expected?.id==id && expected.reportMode==report.reportMode && expected.products==report.products && expected.identity==report.identity) {
+                "Draft berubah sejak ditampilkan. Periksa kembali sebelum mengubah mode."
+            }
+            val problems=Calculation.modeConflicts(report,mode)
+            require(problems.isEmpty()) { problems.joinToString("\n") }
+            persistDay(report.copy(reportMode=mode),report).reports.first { it.id==id }
+        }
+        save(settings().copy(integrationMode=mode))
+        updated
     }
 
     private suspend fun persistDay(report:DailyReport,old:DailyReport?):StockLedger.Result {
@@ -101,7 +119,7 @@ class Repository(private val context: Context, private val db: LhsDatabase = Lhs
         val report=daily(id) ?: error("LHS tidak ditemukan.")
         require(report.status==ReportStatus.DRAFT) { "Buka kembali LHS sebelum mengubah tautan." }
         val link=sourceId?.let {
-            require(report.callsheetLink?.sourceId==it || settings().integrationMode==IntegrationMode.TERINTEGRASI) {
+            require(report.callsheetLink?.sourceId==it || (report.reportMode?.integrated ?: settings().integrationMode.integrated)) {
                 "Aktifkan Mode Terintegrasi di Pengaturan."
             }
             val source=call(it) ?: error("Callsheet sumber tidak tersedia.")

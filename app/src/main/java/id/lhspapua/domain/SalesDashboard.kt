@@ -42,7 +42,7 @@ data class SalesDashboard(
                 if(date !in earliest..today)return@mapNotNull null
                 val totals=runCatching {
                     Calculation.total(report)?.let { total ->
-                        total to report.products.map(Calculation::productTotal)
+                        total to report.products.indices.map { Calculation.productTotal(report,it) }
                     }
                 }.getOrNull()
                 Entry(date,totals?.first,totals?.second)

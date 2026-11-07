@@ -25,7 +25,7 @@ import id.lhspapua.domain.*
 ) {
     val link=report.callsheetLink
     val editable=report.status==ReportStatus.DRAFT && !state.busy
-    val offers=report.status==ReportStatus.DRAFT && state.settings.integrationMode==IntegrationMode.TERINTEGRASI
+    val offers=report.status==ReportStatus.DRAFT && (report.reportMode?.integrated ?: state.settings.integrationMode.integrated)
     if(link==null && !offers)return
     val candidates=remember(report.identity,report.id,state.calls,state.days,offers,link) {
         if(offers && link==null)SalesReconciliation.candidates(report,state.calls,state.days) else emptyList()
@@ -61,6 +61,8 @@ import id.lhspapua.domain.*
                         SalesReconciliation.Match.INVALID -> "Angka Tidak Valid"
                     }
                     val shownTotal=match.total ?: when {
+                        report.salesMode==IntegrationMode.SALES -> match.retail
+                        report.salesMode==IntegrationMode.LEADER -> match.gross
                         match.gross==null -> match.retail
                         match.retail==null -> match.gross
                         else -> null
@@ -73,7 +75,7 @@ import id.lhspapua.domain.*
                                 color=if(match.status==SalesReconciliation.Match.MATCH)MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
                         }
                         if(details)Text("Grosir ${quantity(match.gross)} · Retail ${quantity(match.retail)}",style=MaterialTheme.typography.bodySmall)
-                        if(editable && match.callsheet!=null) {
+                        if(editable && match.callsheet!=null && report.salesMode in listOf(IntegrationMode.MANDIRI,IntegrationMode.TERINTEGRASI)) {
                             val missing=when {
                                 match.gross==null && match.retail!=null -> Tier.G
                                 match.retail==null && match.gross!=null -> Tier.RTL
@@ -96,8 +98,12 @@ import id.lhspapua.domain.*
                         }
                     }
                 }
-                if(review.products.any { it.gross==null && it.retail==null }) {
-                    Text("Isi Grosir dan Retail. Masukkan 0 jika tidak ada penjualan.",style=MaterialTheme.typography.bodySmall)
+                if(review.products.any { it.status==SalesReconciliation.Match.INCOMPLETE }) {
+                    Text(when(report.salesMode) {
+                        IntegrationMode.SALES -> "Isi Retail. Masukkan 0 jika tidak ada penjualan."
+                        IntegrationMode.LEADER -> "Isi Grosir. Masukkan 0 jika tidak ada penjualan."
+                        else -> "Isi Grosir dan Retail. Masukkan 0 jika tidak ada penjualan."
+                    },style=MaterialTheme.typography.bodySmall)
                 }
                 TextButton(onClick={ details=!details }) { Text(if(details) "Tutup Detail" else "Lihat Detail") }
             }
@@ -124,15 +130,20 @@ import id.lhspapua.domain.*
         confirmButton={ TextButton(onClick={ choosing=false }) { Text("Batal") } }
     )
     selected?.takeIf { editable }?.let { candidate ->
+        val entry=when(report.salesMode) {
+            IntegrationMode.SALES -> "Retail tetap diisi pada LHS."
+            IntegrationMode.LEADER -> "Grosir tetap diisi pada LHS."
+            else -> "Grosir dan Retail tetap diisi pada LHS."
+        }
         Confirmation("Hubungkan Callsheet dengan LHS?",
-            "${sourceLabel(candidate,includeRoute=true)}\n\nJumlah Jual Callsheet akan menjadi acuan pencocokan. Grosir dan Retail tetap diisi pada LHS.",
+            "${sourceLabel(candidate,includeRoute=true)}\n\nJumlah Jual Callsheet akan menjadi acuan pencocokan. $entry",
             "Hubungkan",{
                 selected=null
                 vm.changeCallsheetLink(report.id,candidate.id,SalesReconciliation.fingerprint(candidate))
             },{ selected=null })
     }
     if(unlinking && editable)Confirmation("Lepaskan Tautan Callsheet?",
-        "LHS ini akan kembali mandiri. Angka, harga, dan laporan tetap tersimpan.","Lepaskan",{
+        "Tautan sumber akan dilepas. Mode laporan, angka, dan harga tetap tersimpan.","Lepaskan",{
             unlinking=false
             vm.changeCallsheetLink(report.id,null,null)
         },{ unlinking=false })

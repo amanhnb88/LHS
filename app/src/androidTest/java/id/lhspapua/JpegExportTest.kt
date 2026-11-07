@@ -77,6 +77,18 @@ class JpegExportTest {
         assertEquals(700L,Calculation.stockSold(report,1))
         verify(export("LHS_700",listOf(Layout.daily(report))).single(),2480,3508)
 
+        for(mode in listOf(IntegrationMode.SALES,IntegrationMode.LEADER)) {
+            val base=newDaily(Identity(sales="MAIKEL",date="2026-11-07"),mode)
+            val tier=if(mode==IntegrationMode.SALES)Tier.RTL else Tier.G
+            val role=base.copy(products=base.products.mapIndexed { p,stock -> if(p!=1)stock else stock.copy(
+                sales=stock.sales.mapIndexed { t,sale -> if(t==tier.ordinal)sale.copy(quantity=500) else sale }) })
+            assertEquals(500L,Calculation.stockSold(role,1))
+            assertEquals(if(mode==IntegrationMode.SALES)7750000L else 7500000L,Calculation.total(role))
+            val jpg=export("STAGE40_${mode.name}",listOf(Layout.daily(role))).single()
+            verify(jpg,2480,3508)
+            assertEquals("image/jpeg",ShareFiles.intent(context,listOf(jpg)).type)
+        }
+
         // Publish only fixture output so CI can retrieve it after instrumentation cleanup.
         if(android.os.Build.VERSION.SDK_INT>=29) {
             val resolver=context.contentResolver

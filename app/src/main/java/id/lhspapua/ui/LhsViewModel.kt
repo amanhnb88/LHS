@@ -224,7 +224,7 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
         if(state.value.busy)return
         val now=Instant.now()
         val identity=state.value.settings.profile.copy(date=ReportTime.date(now).toString())
-        val r=newDaily(identity).copy(createdAt=now.toString(),automaticMadeBy=true)
+        val r=newDaily(identity,state.value.settings.integrationMode).copy(createdAt=now.toString(),automaticMadeBy=true)
         open(r);saveDay(r)
     }
     private fun nextReportVisit():Int {
@@ -260,6 +260,8 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
         val old=state.value.day ?: return
         if(old.status==ReportStatus.FINAL) { error("Buka kembali laporan sebelum mengubahnya.");return }
         val edit=change(old)
+        val invalid=runCatching { Calculation.validateSalesEdit(old,edit) }.exceptionOrNull()
+        if(invalid!=null) { error(invalid.message ?: "Kategori penjualan dikunci.");return }
         val r=if(old.automaticMadeBy)edit.copy(finance=edit.finance.copy(madeBy=edit.identity.uppercaseFields().sales)) else edit
         if(r==old)return
         mutable.update { it.copy(day=r,pdf=null,xlsx=null) };saveDay(r)
@@ -306,10 +308,31 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
         }
     }
     fun settings(change:(Settings)->Settings) {
+        if(state.value.busy)return
         val current=state.value.settings
         val s=change(current)
         if(s==current)return
         mutable.update { it.copy(settings=s) };queueWrite("settings",repository.json.encodeToString(s)) { repository.save(s) }
+    }
+    fun changeIntegrationMode(mode:IntegrationMode,applyToDraft:Boolean=false) {
+        val current=state.value
+        if(current.busy)return
+        if(!applyToDraft && current.settings.integrationMode==mode)return
+        val expected=current.day?.takeIf { applyToDraft && it.status==ReportStatus.DRAFT && it.automaticSold }
+        if(applyToDraft && expected==null) { error("Buka draft Jual Otomatis terlebih dahulu.");return }
+        mutable.update { it.copy(busy=true) }
+        // Existing autosave jobs finish first. No newer editor changes are accepted while busy.
+        enqueue {
+            try {
+                check(!state.value.saveFailed) { "Selesaikan penyimpanan draft sebelum mengubah mode." }
+                val updated=repository.changeIntegrationMode(mode,expected?.id,expected)
+                mutable.update { value -> value.copy(
+                    settings=value.settings.copy(integrationMode=mode),
+                    day=if(updated!=null && value.day?.id==updated.id)updated else value.day,
+                    pdf=null,xlsx=null
+                ) }
+            } finally { mutable.update { it.copy(busy=false) } }
+        }
     }
     fun updateIdentity(identity:Identity) {
         val r=state.value.day ?: return

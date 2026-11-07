@@ -58,7 +58,7 @@ import java.io.File
                 val tester=runCatching { Calculation.testerTg(day,p) }.getOrNull()
                 val details=listOfNotNull(stock?.let { "Jual Stok ${Calculation.grouped(it)}" },tg?.let { "TG $it" },tester?.let { "Tester $it" })
                 if(details.isNotEmpty())Text(details.joinToString(" · "),style=MaterialTheme.typography.bodySmall)
-                Text(Calculation.safeMoney(empty="—") { Calculation.productTotal(day.products[p]) })
+                Text(Calculation.safeMoney(empty="—") { Calculation.productTotal(day,p) })
             }
             TotalLine("Total Penjualan",Calculation.safeMoney(empty="—") { Calculation.total(day) })
             runCatching { Calculation.balance(day) }.getOrNull()?.let { TotalLine("Saldo Akhir",Calculation.rupiah(it)) }

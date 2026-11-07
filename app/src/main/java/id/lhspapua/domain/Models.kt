@@ -42,11 +42,14 @@ fun CallReport.activeOutlets() = outlets.filterNot { it.untouched() }
     val revision: Long = 0, val stockStale: Boolean = false, val stockIssue: String = "",
     val openingNote: String = "", val finalizedAt: String? = null, val wasFinalized: Boolean = false,
     val createdAt: String? = null, val updatedAt: String? = null,
-    val automaticMadeBy: Boolean = false, val callsheetLink: CallsheetLink? = null) {
+    val automaticMadeBy: Boolean = false, val callsheetLink: CallsheetLink? = null,
+    val reportMode: IntegrationMode? = null) {
     val usesLedger: Boolean get() = formatVersion == 2
     val independent: Boolean get() = formatVersion in 3..4
     val automaticSold: Boolean get() = formatVersion == 4
     val canEnableAutomaticSold: Boolean get() = formatVersion == 3 && status == ReportStatus.DRAFT
+    // Missing metadata retains the pre-4.0 rules, including both sales categories.
+    val salesMode: IntegrationMode get() = reportMode ?: IntegrationMode.MANDIRI
 }
 @Serializable enum class ReportStatus { DRAFT, FINAL }
 @Serializable enum class OpeningMode { AUTO, MANUAL }
@@ -57,7 +60,19 @@ fun CallReport.activeOutlets() = outlets.filterNot { it.untouched() }
     val testerEnabled: Boolean = false,
     val financeEnabled: Boolean = false
 )
-@Serializable enum class IntegrationMode { MANDIRI, TERINTEGRASI }
+@Serializable enum class IntegrationMode(val label: String) {
+    MANDIRI("Mode Mandiri"),
+    TERINTEGRASI("Terintegrasi Lama"), // Keep the serialized name for existing settings/backups.
+    SALES("Terintegrasi Sales"),
+    LEADER("Terintegrasi Leader");
+
+    val integrated: Boolean get() = this != MANDIRI
+    fun allows(tier: Tier): Boolean = when(this) {
+        SALES -> tier == Tier.RTL
+        LEADER -> tier == Tier.G
+        else -> true
+    }
+}
 @Serializable data class CallsheetLink(val sourceId: String, val fingerprint: String, val confirmedAt: String)
 @Serializable data class Settings(val profile: Identity = Identity(), val prices: List<List<Long?>> = OfficialPrices.values, val rules: Rules = Rules(), val outlets: List<SavedOutlet> = emptyList(), val owners: List<StockOwner> = emptyList(),
     val lhsFeatures: LhsFeatureSettings = LhsFeatureSettings(), val integrationMode: IntegrationMode = IntegrationMode.MANDIRI)
@@ -86,9 +101,10 @@ fun Identity.uppercaseFields() = copy(
 )
 
 /** New reports derive stock sold from the applicable sales quantities. */
-fun newDaily(identity: Identity) = DailyReport(
+fun newDaily(identity: Identity, mode: IntegrationMode = IntegrationMode.MANDIRI) = DailyReport(
     identity = identity.uppercaseFields().copy(stockOwnerId = ""),
     formatVersion = 4,
+    reportMode = mode,
     products = Product.entries.map { product -> Stock(sales = OfficialPrices.sales(product)) },
     finance = Finance(madeBy = identity.sales.uppercase(Locale.ROOT)),
     rules = Rules(automaticTg = false, automaticFinance = false)

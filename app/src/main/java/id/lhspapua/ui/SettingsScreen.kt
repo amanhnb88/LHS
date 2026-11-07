@@ -12,7 +12,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import id.lhspapua.domain.*
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 @Composable internal fun SettingsScreen(section:String,select:(String)->Unit,settings:Settings,vm:LhsViewModel,backup:()->Unit,restore:()->Unit) {
     when(section) {
@@ -53,18 +56,53 @@ import id.lhspapua.domain.*
             ConfirmButton("Bersihkan lampiran tidak terpakai","Hapus hanya file lampiran yang sudah tidak dipakai oleh laporan?") { vm.cleanup() }
         }
         "fitur-lhs" -> LhsFeatureOptions(settings.lhsFeatures,vm)
-        "integrasi" -> {
-            Text("Integrasi Laporan",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
-            Text("Hubungkan hasil penjualan Callsheet dengan Laporan Harian.")
-            val modes=IntegrationMode.entries
-            EqualTabs(listOf("Mode Mandiri","Mode Terintegrasi"),settings.integrationMode.ordinal,"integration-mode") { index ->
-                vm.settings { it.copy(integrationMode=modes[index]) }
-            }
-            Text(if(settings.integrationMode==IntegrationMode.MANDIRI)
-                "Callsheet dan LHS diisi terpisah. Tautan yang sudah ada tetap berlaku sampai dilepas."
-                else "LHS menawarkan Callsheet Final yang sesuai. Anda memilih dan mengonfirmasi sumber. Grosir dan Retail tetap diisi di LHS.")
-        }
+        "integrasi" -> IntegrationOptions(settings.integrationMode,vm)
         "lanjutan" -> AdvancedSettings(settings.rules,vm)
+    }
+}
+@Composable private fun IntegrationOptions(mode:IntegrationMode,vm:LhsViewModel) {
+    val current by remember(vm) { vm.state.map { it.day to it.busy }.distinctUntilChanged() }
+        .collectAsStateWithLifecycle(vm.state.value.day to vm.state.value.busy)
+    val draft=current.first?.takeIf { it.status==ReportStatus.DRAFT && it.automaticSold }
+    var requested by remember { mutableStateOf<IntegrationMode?>(null) }
+    fun choose(next:IntegrationMode) {
+        if(draft!=null && draft.reportMode!=next) {
+            if(draft.products.any { stock -> stock.sales.any { it.quantity!=null } }) requested=next
+            else vm.changeIntegrationMode(next,applyToDraft=true)
+        } else vm.changeIntegrationMode(next)
+    }
+    Text("Integrasi Laporan",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
+    listOf(IntegrationMode.MANDIRI,IntegrationMode.SALES,IntegrationMode.LEADER).forEach { option ->
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+            RadioButton(selected=mode==option,onClick={ choose(option) },enabled=!current.second,
+                modifier=Modifier.testTag("integration-mode-${option.name}"))
+            TextButton(onClick={ choose(option) },enabled=!current.second) { Text(option.label) }
+        }
+    }
+    Text(when(mode) {
+        IntegrationMode.MANDIRI -> "Grosir dan Retail aktif. Callsheet dan LHS diisi terpisah."
+        IntegrationMode.SALES -> "Retail aktif, Grosir dikunci. Callsheet dihubungkan setelah konfirmasi."
+        IntegrationMode.LEADER -> "Grosir aktif, Retail dikunci. Callsheet dihubungkan setelah konfirmasi."
+        IntegrationMode.TERINTEGRASI -> "Mode Terintegrasi lama tetap memakai Grosir dan Retail. Pilih mode baru bila diperlukan."
+    },style=MaterialTheme.typography.bodySmall)
+    Text("Pilihan awal untuk laporan baru. Laporan Final dan tautan yang sudah ada tetap tersimpan.",style=MaterialTheme.typography.bodySmall)
+    if(draft!=null) {
+        Text("Draft aktif: ${draft.salesMode.label} · ${draft.identity.displayDate()}",style=MaterialTheme.typography.bodySmall)
+        if(draft.reportMode!=mode)TextButton(onClick={ choose(mode) },enabled=!current.second) { Text("Terapkan ke Draft Aktif") }
+    }
+    requested?.let { next ->
+        val conflicts=draft?.let { Calculation.modeConflicts(it,next) }.orEmpty()
+        AlertDialog(onDismissRequest={ requested=null },title={ Text("Ubah Mode Laporan?") },
+            text={ Text(if(conflicts.isEmpty())
+                "Draft ${draft?.identity?.displayDate().orEmpty()} akan memakai ${next.label}. Angka dan harga tetap tersimpan."
+                else conflicts.joinToString("\n")+"\n\nMode draft belum berubah. Anda dapat memakai pilihan ini hanya untuk laporan baru.") },
+            confirmButton={ TextButton(onClick={ requested=null;vm.changeIntegrationMode(next,applyToDraft=conflicts.isEmpty()) }) {
+                Text(if(conflicts.isEmpty()) "Terapkan ke Draft" else "Hanya Laporan Baru")
+            } },
+            dismissButton={ Column {
+                if(conflicts.isEmpty())TextButton(onClick={ requested=null;vm.changeIntegrationMode(next) }) { Text("Hanya Laporan Baru") }
+                TextButton(onClick={ requested=null }) { Text("Batal") }
+            } })
     }
 }
 @Composable private fun LhsFeatureOptions(features:LhsFeatureSettings,vm:LhsViewModel) {

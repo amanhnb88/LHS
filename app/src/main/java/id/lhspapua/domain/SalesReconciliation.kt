@@ -71,9 +71,11 @@ object SalesReconciliation {
         val retail=sales[Tier.RTL.ordinal].quantity
         val callsheet=runCatching { Calculation.calls(source,product.ordinal,false) }
         val total=runCatching {
-            if(gross==null || retail==null) null else {
-                require(Calculation.validInput(gross) && Calculation.validInput(retail))
-                Calculation.sum(listOf(gross,retail))
+            require(Tier.entries.all { report.salesMode.allows(it) || (sales[it.ordinal].quantity ?: 0L)==0L }) { "Kategori terkunci masih berisi angka." }
+            val active=listOf(Tier.G,Tier.RTL).filter { report.salesMode.allows(it) }.map { sales[it.ordinal].quantity }
+            if(active.any { it==null }) null else {
+                require(active.all(Calculation::validInput))
+                Calculation.sum(active)
             }
         }
         val left=total.getOrNull()

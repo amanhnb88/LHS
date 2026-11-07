@@ -84,6 +84,64 @@ class UiSmokeTest {
         compose.runOnIdle { val view=compose.activity.window.decorView;val b=android.graphics.Bitmap.createBitmap(view.width,view.height,android.graphics.Bitmap.Config.ARGB_8888);view.draw(android.graphics.Canvas(b));val f=java.io.File("build/verification/$name.png");f.parentFile!!.mkdirs();f.outputStream().use { b.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) };b.recycle() }
     }
     private fun newCall() { compose.onNodeWithTag("tab-calls").performClick();click("Buat Laporan Baru");if(vm.state.value.call!!.identity.sales.isNotBlank())click("Ubah tanggal / identitas");text("Nama Sales","Sales Lapangan");click("Gunakan Identitas");saved() }
+    @Test fun roleInputLocksAllProductsAndRejectsDirectCallbacks() {
+        for(mode in listOf(IntegrationMode.SALES,IntegrationMode.LEADER)) {
+            compose.runOnIdle { vm.changeIntegrationMode(mode) };saved()
+            compose.runOnIdle { vm.newDay() };saved()
+            val id=vm.state.value.day!!.id
+            assertEquals(mode,vm.state.value.day!!.reportMode)
+            val active=if(mode==IntegrationMode.SALES)Tier.RTL else Tier.G
+            val locked=if(active==Tier.G)Tier.RTL else Tier.G
+            for(p in Product.entries.indices) {
+                compose.onNodeWithTag("daily-product-$p").performClick()
+                compose.onNodeWithTag("sale-$p-${locked.label}").performScrollTo().assertIsNotEnabled()
+                compose.onNodeWithTag("sale-$p-${active.label}").performScrollTo().assertIsEnabled()
+                text("sale-$p-${active.label}","500")
+                assertEquals(500L,Calculation.stockSold(vm.state.value.day!!,p))
+                assertNull(vm.state.value.day!!.products[p].sales[locked.ordinal].quantity)
+            }
+            saved()
+            val before=vm.state.value.day!!
+            compose.runOnIdle { vm.day { report -> report.copy(products=report.products.map { stock -> stock.copy(sales=stock.sales.mapIndexed { t,s -> if(t==locked.ordinal)s.copy(quantity=999) else s }) }) } }
+            assertEquals(before,vm.state.value.day)
+            assertTrue(vm.state.value.error!!.contains("dikunci"))
+            compose.runOnIdle { vm.error(null) }
+            saved()
+            assertEquals(before.products,runBlocking { vm.repository.daily(id) }!!.products)
+            compose.onNodeWithTag("daily-product-1").performClick()
+            snapshot("STAGE40_${mode.name}_EDITOR")
+        }
+    }
+
+    @Test fun modeSettingsConfirmPopulatedDraftAndNeverEraseConflictingAmounts() {
+        val report=newDaily(Identity(sales="MAIKEL"))
+        runBlocking { vm.repository.save(report) }
+        compose.runOnIdle { vm.open(report) }
+        text("sale-0-G","200")
+        compose.onNodeWithTag("tab-home").performClick()
+        compose.onNodeWithContentDescription("Pengaturan").performClick()
+        click("Integrasi Laporan")
+        click("Terintegrasi Sales")
+        compose.onNodeWithText("Ubah Mode Laporan?").assertExists()
+        click("Batal")
+        assertEquals(IntegrationMode.MANDIRI,vm.state.value.settings.integrationMode)
+        assertEquals(200L,vm.state.value.day!!.products[0].sales[0].quantity)
+        click("Terintegrasi Sales")
+        click("Hanya Laporan Baru");saved()
+        assertEquals(IntegrationMode.SALES,vm.state.value.settings.integrationMode)
+        assertEquals(IntegrationMode.MANDIRI,vm.state.value.day!!.reportMode)
+        compose.runOnIdle { vm.open(vm.state.value.day!!) }
+        text("sale-0-G","");text("sale-0-RTL","500")
+        compose.onNodeWithTag("tab-home").performClick()
+        compose.onNodeWithContentDescription("Pengaturan").performClick()
+        click("Integrasi Laporan")
+        click("Terapkan ke Draft Aktif")
+        click("Terapkan ke Draft");saved()
+        assertEquals(IntegrationMode.SALES,vm.state.value.day!!.reportMode)
+        assertEquals(500L,vm.state.value.day!!.products[0].sales[2].quantity)
+        assertFalse(vm.state.value.saveFailed)
+        snapshot("STAGE40_MODE_SETTINGS")
+    }
     @Test fun masterOutletIsFoundDirectlyAndDraftResumesWithoutDuplicates() {
         vm.settings { it.copy(outlets=listOf(SavedOutlet("Toko Aimas","Jalan Aimas"))) };saved()
         newCall();val id=vm.state.value.call!!.id
@@ -476,7 +534,7 @@ class UiSmokeTest {
         val first=call(650)
         val second=call(700)
         val sourceDraft=call(500,false)
-        val day=newDaily(identity)
+        val day=newDaily(identity).copy(reportMode=null)
         runBlocking {
             vm.repository.save(first)
             vm.repository.save(second)
@@ -510,7 +568,7 @@ class UiSmokeTest {
         val identity=Identity(sales="MAIKEL")
         val source=CallReport(identity=identity,completed=true,
             outlets=listOf(Outlet(quantities=listOf(Quantity(sold=370),Quantity(),Quantity()))))
-        val day=newDaily(identity)
+        val day=newDaily(identity).copy(reportMode=null)
         runBlocking { vm.repository.save(source);vm.repository.save(day) }
         awaitState("Single Callsheet persisted") { vm.state.value.calls.any { it.id==source.id } }
         compose.runOnIdle {

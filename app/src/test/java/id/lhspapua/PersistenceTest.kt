@@ -15,6 +15,106 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[28])
 class PersistenceTest {
+    @Test fun reportModesAreExplicitTransactionalAndSurviveBackupAndRestart() = runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        val name="stage40-modes"
+        context.deleteDatabase(name)
+        fun open()=Room.databaseBuilder(context,LhsDatabase::class.java,name).build()
+        val db=open()
+        val identity=Identity(sales="MAIKEL",date="2026-11-07")
+        val sales=newDaily(identity,IntegrationMode.SALES)
+        val leader=newDaily(identity,IntegrationMode.LEADER)
+        val legacy=newDaily(identity).copy(reportMode=null)
+        val backup=java.io.File(context.cacheDir,"exports/stage40-backup.zip").apply { parentFile!!.mkdirs() }
+        try {
+            val repo=Repository(context,db)
+            assertEquals(IntegrationMode.MANDIRI,repo.settings().integrationMode)
+            repo.save(sales);repo.save(leader);repo.save(legacy)
+            val populated=sales.copy(products=sales.products.mapIndexed { p,stock -> if(p!=1)stock else stock.copy(
+                sales=stock.sales.mapIndexed { t,s -> if(t==Tier.RTL.ordinal)s.copy(quantity=500) else s }) })
+            repo.save(populated)
+            val saved=repo.daily(sales.id)!!
+            assertEquals(7750000L,Calculation.total(saved))
+            assertEquals(500L,Calculation.stockSold(saved,1))
+            val illegal=saved.copy(products=saved.products.map { stock -> stock.copy(sales=stock.sales.mapIndexed { t,s -> if(t==0)s.copy(quantity=1) else s }) })
+            assertTrue(runCatching { repo.save(illegal) }.isFailure)
+            assertEquals(saved,repo.daily(sales.id))
+            assertTrue(runCatching { repo.save(saved.copy(reportMode=IntegrationMode.LEADER)) }.isFailure)
+            assertTrue(runCatching { repo.changeIntegrationMode(IntegrationMode.LEADER,sales.id,saved) }.isFailure)
+            assertEquals(IntegrationMode.MANDIRI,repo.settings().integrationMode)
+            assertEquals(saved,repo.daily(sales.id))
+            assertTrue(runCatching { repo.changeIntegrationMode(IntegrationMode.MANDIRI,sales.id,sales) }.isFailure)
+            repo.changeIntegrationMode(IntegrationMode.LEADER) // Global changes never mutate transactions.
+            assertEquals(saved,repo.daily(sales.id))
+            val final=repo.finalizeDay(sales.id).reports.single()
+            repo.changeIntegrationMode(IntegrationMode.MANDIRI)
+            assertEquals(final,repo.daily(sales.id))
+            assertTrue(runCatching { repo.changeIntegrationMode(IntegrationMode.LEADER,sales.id,final) }.isFailure)
+            assertTrue(runCatching { repo.save(final.copy(finance=Finance(notes="CHANGED"))) }.isFailure)
+            val reopened=repo.reopen(sales.id).reports.single()
+            assertEquals(IntegrationMode.SALES,reopened.reportMode)
+            val independent=repo.changeIntegrationMode(IntegrationMode.MANDIRI,sales.id,reopened)!!
+            assertEquals(saved.products,independent.products)
+            assertEquals(7750000L,Calculation.total(independent))
+            repo.changeIntegrationMode(IntegrationMode.SALES,sales.id,independent)
+            repo.changeIntegrationMode(IntegrationMode.SALES,leader.id,repo.daily(leader.id))
+            assertEquals(legacy,repo.daily(legacy.id))
+            repo.backup(backup)
+        } finally { db.close() }
+        val second=open()
+        try {
+            val repo=Repository(context,second)
+            val before=repo.daily(sales.id)!!
+            assertEquals(IntegrationMode.SALES,before.reportMode)
+            assertNull(before.products[1].sales[0].quantity)
+            assertEquals(500L,before.products[1].sales[2].quantity)
+            repo.deleteDaily(sales.id)
+            repo.save(Settings())
+            repo.restore(androidx.core.content.FileProvider.getUriForFile(context,"id.lhspapua.files",backup))
+            assertEquals(before,repo.daily(sales.id))
+            assertEquals(IntegrationMode.SALES,repo.settings().integrationMode)
+            assertEquals(legacy,repo.daily(legacy.id))
+        } finally { second.close();context.deleteDatabase(name) }
+        Unit
+    }
+
+    @Test fun roleFinalizationChecksLatestSourceAndStoredLockedCategoryConflicts() = runBlocking {
+        val context=ApplicationProvider.getApplicationContext<Context>()
+        val db=Room.inMemoryDatabaseBuilder(context,LhsDatabase::class.java).build()
+        try {
+            val repo=Repository(context,db)
+            for(mode in listOf(IntegrationMode.SALES,IntegrationMode.LEADER)) {
+                val identity=Identity(sales=mode.name,date="2026-11-07")
+                val source=CallReport(identity=identity,completed=true,outlets=listOf(Outlet(quantities=List(3) { Quantity(sold=500) })))
+                val tier=if(mode==IntegrationMode.SALES)Tier.RTL else Tier.G
+                val base=newDaily(identity,mode)
+                val report=base.copy(products=base.products.map { stock -> stock.copy(sales=stock.sales.mapIndexed { t,s -> if(t==tier.ordinal)s.copy(quantity=500) else s }) })
+                repo.save(source);repo.save(report)
+                val linked=repo.changeCallsheetLink(report.id,source.id,SalesReconciliation.fingerprint(source))
+                assertTrue(SalesReconciliation.review(linked,source,false)!!.problems.isEmpty())
+                val changed=repo.save(source.copy(completed=false))
+                assertTrue(runCatching { repo.finalizeDay(report.id) }.isFailure)
+                val finalSource=repo.completeCall(changed.id)
+                assertTrue(runCatching { repo.finalizeDay(report.id) }.isFailure)
+                repo.changeCallsheetLink(report.id,source.id,SalesReconciliation.fingerprint(finalSource))
+                val final=repo.finalizeDay(report.id).reports.single()
+                assertEquals(ReportStatus.FINAL,final.status)
+                assertEquals(mode,final.reportMode)
+                val draft=repo.reopen(report.id).reports.single()
+                val invalid=draft.copy(products=draft.products.map { stock -> stock.copy(sales=stock.sales.mapIndexed { t,s -> if(t!=tier.ordinal && t!=1)s.copy(quantity=4) else s }) })
+                // Simulate a conflicting payload restored from a backup, bypassing normal editor guards.
+                db.dao().save(DailyEntity(invalid.id,invalid.identity.date,invalid.identity.sales,repo.json.encodeToString(DailyReport.serializer(),invalid)))
+                assertTrue(runCatching { repo.finalizeDay(report.id) }.isFailure)
+                assertEquals(invalid.products,repo.daily(report.id)!!.products)
+                val fixed=repo.changeIntegrationMode(IntegrationMode.MANDIRI,report.id,invalid)!!
+                assertEquals(invalid.products,fixed.products)
+                val unlinked=repo.changeCallsheetLink(report.id,null,null)
+                assertEquals(fixed.products,unlinked.products)
+                assertEquals(ReportStatus.FINAL,repo.finalizeDay(report.id).reports.single().status)
+            }
+        } finally { db.close() }
+        Unit
+    }
     @org.junit.Before fun clearProviderCacheBetweenRobolectricContexts() {
         val cache=androidx.core.content.FileProvider::class.java.getDeclaredField("sCache")
         cache.isAccessible=true
@@ -173,7 +273,7 @@ class PersistenceTest {
             val source=CallReport(identity=identity,completed=true,outlets=listOf(
                 Outlet(quantities=listOf(Quantity(sold=0),Quantity(sold=650),Quantity(sold=0)))
             ))
-            val base=newDaily(identity)
+            val base=newDaily(identity).copy(reportMode=null)
             val draft=base.copy(products=base.products.mapIndexed { p,stock ->
                 val g=if(p==1)200L else 0L
                 val rtl=if(p==1)450L else 0L
@@ -232,7 +332,7 @@ class PersistenceTest {
         fun open()=Room.databaseBuilder(context,LhsDatabase::class.java,name).build()
         val identity=Identity(date="2026-11-07",sales="MAIKEL")
         val source=CallReport(identity=identity,completed=true)
-        val draft=newDaily(identity)
+        val draft=newDaily(identity).copy(reportMode=null)
         val historical=newDaily(identity).copy(status=ReportStatus.FINAL,finance=Finance(madeBy="PEMBUAT LAMA"))
         val settings=Settings(lhsFeatures=LhsFeatureSettings(true,false,true),integrationMode=IntegrationMode.TERINTEGRASI)
         val dir=java.io.File(context.cacheDir,"exports").apply { mkdirs() }

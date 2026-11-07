@@ -21,7 +21,20 @@ object Calculation {
     fun sold(s: Stock) = sum(s.sales.filter { it.applicable }.map { it.quantity })
     private fun missingPrice(s: Sale) = s.applicable && (s.quantity ?: 0) > 0 && s.price == null
     fun productTotal(s: Stock): Long? = if (s.sales.any(::missingPrice)) null else sum(s.sales.map(::subtotal))
-    fun total(r: DailyReport): Long? = if (r.products.any { it.sales.any(::missingPrice) }) null else sum(r.products.map(::productTotal))
+    fun reportStock(r: DailyReport, product: Int): Stock {
+        val stock=r.products[product]
+        require(Tier.entries.all { r.salesMode.allows(it) || (stock.sales[it.ordinal].quantity ?: 0L)==0L }) {
+            "${Product.entries[product].label}: kategori terkunci masih berisi angka. Periksa mode laporan di Pengaturan."
+        }
+        return if(r.salesMode==IntegrationMode.SALES || r.salesMode==IntegrationMode.LEADER)
+            stock.copy(sales=stock.sales.mapIndexed { t,sale -> if(r.salesMode.allows(Tier.entries[t]))sale else sale.copy(applicable=false) })
+        else stock
+    }
+    fun productTotal(r: DailyReport, product: Int): Long? = productTotal(reportStock(r,product))
+    fun total(r: DailyReport): Long? {
+        val stocks=r.products.indices.map { reportStock(r,it) }
+        return if(stocks.any { it.sales.any(::missingPrice) }) null else sum(stocks.map(::productTotal))
+    }
     fun available(s: Stock): Long? = if(s.opening==null || s.delivery==null) null else bounded(Math.addExact(s.opening,s.delivery))
     fun tg(s: Stock, r: Rules): Long? {
         if(s.openingTracked) {
@@ -38,7 +51,7 @@ object Calculation {
         return if (!r.automaticTg) t.manualTg else t.delivery?.let { bounded(it - (t.sample ?: 0)) }
     }
     fun stockSold(r: DailyReport, product: Int): Long? =
-        if(r.independent && !r.automaticSold) r.products[product].manualSold else sold(r.products[product])
+        if(r.independent && !r.automaticSold) r.products[product].manualSold else sold(reportStock(r,product))
 
     fun stockTg(r: DailyReport, product: Int): Long? =
         if(r.independent) r.products[product].manualTg else tg(r.products[product], r.rules)
@@ -56,6 +69,20 @@ object Calculation {
         return sum(numbers)
     }
     fun calls(r: CallReport, product: Int, stock: Boolean) = sum(r.outlets.map { if(stock) it.quantities[product].stock else it.quantities[product].sold })
+    fun modeConflicts(r: DailyReport, mode: IntegrationMode = r.salesMode): List<String> =
+        r.products.flatMapIndexed { p, stock ->
+            Tier.entries.filter { !mode.allows(it) && (stock.sales[it.ordinal].quantity ?: 0L) != 0L }.map {
+                "${Product.entries[p].label}: ${if(it==Tier.G) "Grosir" else if(it==Tier.RTL) "Retail" else "SG"} masih berisi angka. Perbaiki dalam mode sebelumnya sebelum memakai ${mode.label}."
+            }
+        }
+
+    /** Also guards callbacks/storage writes; disabled UI is not the authority. */
+    fun validateSalesEdit(old: DailyReport, edit: DailyReport) {
+        require(edit.reportMode == old.reportMode) { "Ubah mode laporan melalui Pengaturan Integrasi Laporan." }
+        require(old.products.indices.all { p -> Tier.entries.all { tier ->
+            old.salesMode.allows(tier) || old.products[p].sales[tier.ordinal] == edit.products[p].sales[tier.ordinal]
+        } }) { "Kategori penjualan dikunci oleh mode laporan. Ubah mode melalui Pengaturan." }
+    }
     fun errors(r: CallReport): List<String> = buildList {
         r.activeOutlets().forEachIndexed { i, outlet ->
             outlet.quantities.forEachIndexed { p, quantity ->
@@ -67,12 +94,13 @@ object Calculation {
         runCatching { Product.entries.indices.forEach { calls(r,it,true); calls(r,it,false) } }.exceptionOrNull()?.let { add(it.message ?: "Angka terlalu besar.") }
     }
     fun errors(r: DailyReport): List<String> = buildList {
+        addAll(modeConflicts(r))
         if(r.independent) {
             runCatching { validate(r) }.onFailure { add(it.message ?: "Periksa angka pada laporan.") }
             if(r.automaticSold)r.products.forEachIndexed { index,stock ->
                 runCatching { sold(stock) }.onFailure { add("${Product.entries[index].label}: jumlah Jual terlalu besar.") }
             }
-            runCatching { total(r) }.onFailure { add("Total terlalu besar untuk diekspor secara akurat.") }
+            runCatching { total(r) }.onFailure { if(modeConflicts(r).isEmpty())add("Total terlalu besar untuk diekspor secara akurat.") }
             return@buildList
         }
         if(r.rules.automaticFinance && !r.rules.acknowledged) add("Aturan saldo belum disetujui. Verifikasi sekali di Pengaturan Lanjutan, atau gunakan Saldo Akhir manual.")
@@ -129,6 +157,7 @@ object Calculation {
         require(validSigned(r.finance.previous) && validSigned(r.finance.manualBalance))
         require(listOf(r.finance.debt,r.finance.settlement,r.finance.transfer,r.finance.expense).all(::validInput))
         require(r.formatVersion in 1..4 && r.stockSequence>0 && r.revision>=0)
+        require(r.reportMode !in listOf(IntegrationMode.SALES,IntegrationMode.LEADER) || r.automaticSold) { "Mode Sales/Leader memerlukan laporan Jual Otomatis." }
         if(r.usesLedger) require(r.products.all { it.openingTracked } && r.testers.all { it.openingTracked })
         java.time.LocalDate.parse(r.identity.date)
     }

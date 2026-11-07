@@ -83,6 +83,10 @@ import java.io.File
             else if(r.identity.sales.isBlank()) vm.focus("Nama Sales")
             else vm.prepareDailyIdentity { identity=false }
         }
+        if(r.reportMode==IntegrationMode.SALES || r.reportMode==IntegrationMode.LEADER) {
+            Text(if(r.reportMode==IntegrationMode.SALES) "MODE SALES — RETAIL" else "MODE LEADER — GROSIR",
+                style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary)
+        }
         if(identity && r.usesLedger) {
             val sameDate=state.days.filter { it.id!=r.id&&it.identity.date==r.identity.date&&it.identity.stockOwnerId==r.identity.stockOwnerId&&r.identity.stockOwnerId.isNotBlank() }
             if(sameDate.isNotEmpty())TextButton(onClick={ sequenceDialog=true }) { Text("Laporan lain pada tanggal ini") }
@@ -171,7 +175,7 @@ import java.io.File
             }
             if(report.automaticSold) {
                 val sold=runCatching { Calculation.stockSold(report,product)?.let { "${Calculation.grouped(it)} BUNGKUS" } ?: "—" }
-                    .getOrDefault("Angka terlalu besar")
+                    .getOrDefault("Periksa angka / mode")
                 Surface(modifier=Modifier.weight(1f),shape=MaterialTheme.shapes.small,color=MaterialTheme.colorScheme.secondaryContainer) {
                     Column(Modifier.padding(8.dp)) {
                         Text("JUAL (OTOMATIS)",style=MaterialTheme.typography.labelSmall)
@@ -200,16 +204,17 @@ import java.io.File
             val sale=stock.sales[index]
             val label=if(tier==Tier.G) "Grosir (G)" else "Retail (RTL)"
             Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
-                Numeric(label,sale.quantity,modifier=Modifier.weight(1f),tag="sale-$product-${tier.label}",done=tier==Tier.RTL) { n ->
+                Numeric(label,sale.quantity,modifier=Modifier.weight(1f),tag="sale-$product-${tier.label}",
+                    enabled=report.salesMode.allows(tier),done=tier==Tier.RTL || report.salesMode==IntegrationMode.LEADER) { n ->
                     update { it.copy(sales=it.sales.replace(index,it.sales[index].copy(quantity=n))) }
                 }
                 Column(Modifier.weight(1.3f)) {
                     Text("× ${Calculation.rupiah(sale.price)}",style=MaterialTheme.typography.bodySmall)
-                    Text(Calculation.safeMoney(empty="—") { Calculation.subtotal(sale) },fontWeight=FontWeight.SemiBold)
+                    Text(if(report.salesMode.allows(tier)) Calculation.safeMoney(empty="—") { Calculation.subtotal(sale) } else "—",fontWeight=FontWeight.SemiBold)
                 }
             }
         }
-        TotalLine("Total Produk",Calculation.safeMoney(empty="—") { Calculation.productTotal(stock) })
+        TotalLine("Total Produk",Calculation.safeMoney(empty="—") { Calculation.productTotal(report,product) })
     }
 }
 

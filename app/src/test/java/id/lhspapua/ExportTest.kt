@@ -12,6 +12,52 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 
 class ExportTest {
+    @Test fun salesAndLeaderKeepOfficialGeometryAndUseOnlyTheirCategoryInExcel() {
+        val identity=Identity(sales="MAIKEL",area="SORONG",date="2026-11-07")
+        val geometry=Layout.daily(newDaily(identity)).cells.map { it.copy(text="",number=null,formula=null) }
+        for(mode in listOf(IntegrationMode.SALES,IntegrationMode.LEADER)) {
+            val base=newDaily(identity,mode)
+            val tier=if(mode==IntegrationMode.SALES)Tier.RTL else Tier.G
+            val report=base.copy(products=base.products.mapIndexed { p,stock -> if(p!=1)stock else stock.copy(manualTg=50,
+                sales=stock.sales.mapIndexed { t,sale -> if(t==tier.ordinal)sale.copy(quantity=500) else sale }) })
+            val sheet=Layout.daily(report)
+            assertEquals(geometry,sheet.cells.map { it.copy(text="",number=null,formula=null) })
+            val expected=if(mode==IntegrationMode.SALES)7750000L else 7500000L
+            val pdf=ByteArrayOutputStream().also { PdfExport.write(listOf(sheet),it) }
+            PDDocument.load(pdf.toByteArray()).use { document ->
+                assertEquals(595.2756f,document.getPage(0).mediaBox.width,0.01f)
+                assertEquals(841.8898f,document.getPage(0).mediaBox.height,0.01f)
+                val text=PDFTextStripper().getText(document)
+                assertTrue(text.contains(Calculation.grouped(expected)))
+                assertTrue(text.contains("500"))
+                assertFalse(text.contains("MODE SALES"));assertFalse(text.contains("MODE LEADER"))
+                listOf("STOCK","PENJUALAN","TESTER","G","SG","RTL").forEach { assertTrue(text.contains(it)) }
+            }
+            val xlsx=ByteArrayOutputStream().also { ExcelExport.write(listOf(sheet),it) }
+            XSSFWorkbook(xlsx.toByteArray().inputStream()).use { workbook ->
+                val cells=workbook.getSheetAt(0)
+                assertEquals(9.toShort(),cells.printSetup.paperSize)
+                assertFalse(cells.printSetup.landscape)
+                assertTrue(workbook.forceFormulaRecalculation)
+                val eval=workbook.creationHelper.createFormulaEvaluator()
+                fun number(row:Int,col:Int)=eval.evaluate(cells.getRow(row).getCell(col)).numberValue
+                assertEquals(500.0,number(17,4),0.0)
+                assertEquals(expected.toDouble(),number(19,20),0.0)
+                assertEquals(expected.toDouble(),number(39,5),0.0)
+                assertEquals(50.0,number(20,4),0.0)
+                assertEquals("",eval.evaluate(cells.getRow(9).getCell(4)).stringValue)
+                val row=16+tier.ordinal
+                assertEquals(CellType.FORMULA,cells.getRow(row).getCell(20).cellType)
+                cells.getRow(row).getCell(13).setCellValue(600.0)
+                eval.clearAllCachedResultValues()
+                assertEquals(600.0,number(17,4),0.0)
+                assertEquals(if(mode==IntegrationMode.SALES)9300000.0 else 9000000.0,number(39,5),0.0)
+            }
+            val dir=File("build/verification").apply { mkdirs() }
+            File(dir,"STAGE40_${mode.name}.pdf").writeBytes(pdf.toByteArray())
+            File(dir,"STAGE40_${mode.name}.xlsx").writeBytes(xlsx.toByteArray())
+        }
+    }
     private val fixture=DailyReport(identity=Identity(sales="Aldry",area="Jayapura",route="Sentani",vehicle="Motor",plate="PA 1234",join="01/01/2026"),products=List(3) { Stock(100,2,1,sales=listOf(Sale(10,10000),Sale(5,11000),Sale(2,12000))) },testers=List(3) { Tester(10,3) },finance=Finance(50000,20000,5000,100000,10000,"Biaya operasional sales","Aldry"),rules=Rules(acknowledged=true))
     @Test fun pdfPhysicalA4AndText() {
         val output=ByteArrayOutputStream(); PdfExport.write(listOf(Layout.daily(fixture)),output)

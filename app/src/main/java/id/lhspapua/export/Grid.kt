@@ -61,13 +61,13 @@ object Layout {
         s.put(3,0,cs=8,t="Tgl: ${i.displayDate()}",b=true); s.put(3,8,cs=16,t="Join: ${i.join}",b=true)
         s.put(5,0,cs=10,t="STOCK",b=true,center=true,size=14f); s.put(5,10,cs=14,t="PENJUALAN",b=true,center=true,size=14f)
         val missingPrices = r.products.flatMapIndexed { p, stock ->
-            stock.sales.indices.filter { stock.sales[it].applicable }.map { tier ->
+            stock.sales.indices.filter { stock.sales[it].applicable && r.salesMode.allows(Tier.entries[it]) }.map { tier ->
                 missingPrice(s, 8+p*8+tier)
             }
         }.joinToString(",")
         r.products.forEachIndexed { p, stock ->
             val base=6+p*8
-            val activeTiers = stock.sales.indices.filter { stock.sales[it].applicable }
+            val activeTiers = stock.sales.indices.filter { stock.sales[it].applicable && r.salesMode.allows(Tier.entries[it]) }
             val soldRefs = activeTiers.joinToString(",") { s.ref(base+2+it,13) }
             s.put(base,0,rs=2,cs=10,t=Product.entries[p].label,b=true,size=12f); s.put(base,10,rs=2,cs=14,t=Product.entries[p].label,b=true,size=12f)
             val quantities=listOf(stock.delivery,Calculation.stockSold(r,p),stock.sample,stock.bonus,Calculation.stockTg(r,p))
@@ -93,13 +93,13 @@ object Layout {
                 s.put(row,16,cs=3,t=if(sale.applicable) "" else "-",n=sale.price.takeIf { sale.applicable },money=true,edges=10)
                 s.put(row,19,t="=",center=true,edges=10)
                 val q=s.ref(row,13); val price=s.ref(row,16)
-                s.put(row,20,cs=4,n=Calculation.subtotal(sale),f=if(sale.applicable) "IF($q=\"\",\"\",IF($q=0,0,IF($price=\"\",\"\",$q*$price)))" else null,money=true,edges=14)
+                s.put(row,20,cs=4,n=if(t in activeTiers)Calculation.subtotal(sale) else null,f=if(t in activeTiers) "IF($q=\"\",\"\",IF($q=0,0,IF($price=\"\",\"\",$q*$price)))" else null,money=true,edges=14)
             }
             s.put(base+5,10,rs=2,cs=10,t="Total",b=true,center=true)
             val range = if(activeTiers.size == 3) "${s.ref(base+2,20)}:${s.ref(base+4,20)}"
                 else activeTiers.joinToString(",") { s.ref(base+2+it,20) }
             val missing = activeTiers.joinToString(",") { missingPrice(s, base+2+it) }
-            s.put(base+5,20,rs=2,cs=4,n=Calculation.productTotal(stock),f="IF(OR($missing),\"\",IF(COUNT($range)=0,\"\",SUM($range)))",money=true,b=true)
+            s.put(base+5,20,rs=2,cs=4,n=Calculation.productTotal(r,p),f="IF(OR($missing),\"\",IF(COUNT($range)=0,\"\",SUM($range)))",money=true,b=true)
             s.put(base+7,10,cs=14)
         }
         s.put(31,0,cs=17,t="TESTER",b=true,size=12f)

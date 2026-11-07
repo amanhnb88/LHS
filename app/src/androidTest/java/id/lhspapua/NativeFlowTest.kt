@@ -23,6 +23,8 @@ import androidx.lifecycle.ViewModelProvider
 import id.lhspapua.domain.Calculation
 import id.lhspapua.domain.LhsFeatureSettings
 import id.lhspapua.domain.Product
+import id.lhspapua.domain.IntegrationMode
+import id.lhspapua.domain.Tier
 import id.lhspapua.domain.untouched
 import id.lhspapua.ui.LhsViewModel
 import kotlinx.coroutines.runBlocking
@@ -42,6 +44,49 @@ class NativeFlowTest {
     private fun hideIme() {
         if(imeVisible())back()
         compose.waitUntil(10000) { !imeVisible() }
+    }
+
+    @Test fun roleModesLockInactiveFieldsWithoutOpeningKeyboard() {
+        val vm=compose.runOnIdle { ViewModelProvider(compose.activity)[LhsViewModel::class.java] }
+        compose.waitUntil(20000) { vm.state.value.ready && vm.state.value.pending==0 }
+        fun saved()=compose.waitUntil(20000) { vm.state.value.let { it.pending==0 && !it.busy && !it.saveFailed } }
+        try {
+            for(mode in listOf(IntegrationMode.SALES,IntegrationMode.LEADER)) {
+                hideIme()
+                compose.runOnIdle { vm.changeIntegrationMode(mode) };saved()
+                compose.runOnIdle { vm.newDay() };saved()
+                val tier=if(mode==IntegrationMode.SALES)Tier.RTL else Tier.G
+                val locked=if(tier==Tier.G)Tier.RTL else Tier.G
+                for(p in Product.entries.indices) {
+                    compose.onNodeWithTag("daily-product-$p").performClick()
+                    val inactive=compose.onNodeWithTag("sale-$p-${locked.label}").performScrollTo().assertIsNotEnabled()
+                    inactive.performTouchInput { click() }
+                    inactive.assert(!SemanticsMatcher.expectValue(SemanticsProperties.Focused,true))
+                    assertFalse(imeVisible())
+                    val field=compose.onNodeWithTag("sale-$p-${tier.label}").performScrollTo().assertIsEnabled()
+                    field.performTextReplacement("500")
+                    field.performTouchInput { click() }
+                    compose.waitUntil(10000) { imeVisible() }
+                    tab("days").assertIsDisplayed().assertIsSelected()
+                    compose.onNodeWithText("Periksa Laporan").assertIsDisplayed()
+                    field.performImeAction()
+                    compose.waitUntil(10000) { !imeVisible() }
+                    assertNull(vm.state.value.day!!.products[p].sales[locked.ordinal].quantity)
+                    assertEquals(500L,Calculation.stockSold(vm.state.value.day!!,p))
+                }
+                saved()
+                val report=vm.state.value.day!!
+                assertEquals(mode,report.reportMode)
+                assertEquals(if(mode==IntegrationMode.SALES)24000000L else 23250000L,Calculation.total(report))
+                tab("home").performClick()
+                compose.runOnIdle { vm.open(report) }
+                assertEquals(report.id,vm.state.value.day!!.id)
+                assertEquals(mode,vm.state.value.day!!.reportMode)
+            }
+        } finally {
+            hideIme()
+            compose.runOnIdle { vm.changeIntegrationMode(IntegrationMode.MANDIRI) };saved()
+        }
     }
 
     @Test fun nativeCompactCallInput() {
@@ -119,7 +164,7 @@ class NativeFlowTest {
             tab(route).performClick()
             compose.onNodeWithContentDescription("Pengaturan").performClick()
             click("Integrasi Laporan")
-            compose.onNodeWithTag("integration-mode-0").assertExists()
+            compose.onNodeWithTag("integration-mode-MANDIRI").assertExists()
             back()
             click("Pengaturan Fitur LHS")
             compose.onNodeWithTag("feature-stock").assertExists()
