@@ -36,6 +36,12 @@ class SalesReconciliationTest {
         assertEquals(-50L,check(200,400).products[1].difference)
         assertEquals(SalesReconciliation.Match.DIFFERENT,check(200,400).products[1].status)
         assertEquals(SalesReconciliation.Match.INCOMPLETE,check(200,null).products[1].status)
+        assertEquals(SalesReconciliation.Match.INCOMPLETE,check(null,650).products[1].status)
+        assertEquals(SalesReconciliation.Match.INCOMPLETE,check(null,null).products[1].status)
+        assertEquals(SalesReconciliation.Match.MATCH,check(0,650).products[1].status)
+        assertEquals(SalesReconciliation.Match.MATCH,check(650,0).products[1].status)
+        assertEquals(SalesReconciliation.Match.INCOMPLETE,
+            SalesReconciliation.review(linked,source.copy(outlets=emptyList()),false)!!.products[1].status)
         assertEquals(SalesReconciliation.Match.INVALID,check(Calculation.MAX,1).products[1].status)
     }
 

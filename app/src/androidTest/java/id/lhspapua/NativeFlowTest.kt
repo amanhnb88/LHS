@@ -92,6 +92,9 @@ class NativeFlowTest {
         compose.onNodeWithTag("call-sold-2").assertTextEquals("200 bungkus")
         compose.onNodeWithTag("call-total-sold").assertTextEquals("200 BUNGKUS")
         compose.onNodeWithText("Stok",substring=true).assertDoesNotExist()
+        compose.onNodeWithText("Pratinjau JPG").performScrollTo().assertIsEnabled()
+        assertNull(vm.state.value.preview)
+        click("PDF")
         click("Pratinjau Draf PDF")
         compose.waitUntil(15000) { compose.onAllNodesWithContentDescription("Halaman 1 dari 1").fetchSemanticsNodes().isNotEmpty() }
         back()
@@ -112,6 +115,18 @@ class NativeFlowTest {
             tab(route).assertIsSelected()
         }
         assertEquals(counts,runBlocking { vm.repository.calls.first().size to vm.repository.allDaily().size })
+        for(route in listOf("home","calls","days")) {
+            tab(route).performClick()
+            compose.onNodeWithContentDescription("Pengaturan").performClick()
+            click("Integrasi Laporan")
+            compose.onNodeWithTag("integration-mode-0").assertExists()
+            back()
+            click("Pengaturan Fitur LHS")
+            compose.onNodeWithTag("feature-stock").assertExists()
+            back()
+            back()
+            tab(route).assertIsSelected()
+        }
         tab("history").performClick()
         compose.onNodeWithContentDescription("Pengaturan").performClick()
         click("Profil Sales")
@@ -269,6 +284,15 @@ class NativeFlowTest {
         click("Periksa Laporan")
         compose.onNodeWithText("Total Penjualan: Rp 11.535.000").performScrollTo().assertExists()
         compose.onNodeWithText("Saldo Akhir: Rp 12.345").assertExists()
+        compose.onNodeWithText("Simpan JPG").performScrollTo().assertIsEnabled()
+        compose.onNodeWithText("Bagikan JPG").assertIsEnabled()
+        click("Pratinjau JPG")
+        compose.waitUntil(15000) { vm.state.value.preview!=null }
+        assertEquals("Pratinjau JPG",vm.state.value.previewTitle)
+        back()
+        compose.waitUntil(10000) { vm.state.value.preview==null }
+        compose.onNodeWithText("Simpan JPG").performScrollTo().assertIsEnabled()
+        click("PDF")
         compose.onNodeWithText("Simpan PDF").performScrollTo().assertIsEnabled()
         click("Excel")
         compose.onNodeWithText("Simpan Excel").performScrollTo().assertIsEnabled()

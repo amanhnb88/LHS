@@ -14,7 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import id.lhspapua.domain.*
 
-@Composable internal fun SettingsScreen(section:String,select:(String)->Unit,state:UiState,vm:LhsViewModel,backup:()->Unit,restore:()->Unit) {
+@Composable internal fun SettingsScreen(section:String,select:(String)->Unit,settings:Settings,vm:LhsViewModel,backup:()->Unit,restore:()->Unit) {
     when(section) {
         "" -> {
             listOf(
@@ -29,7 +29,7 @@ import id.lhspapua.domain.*
         }
         "profil" -> {
             Text("Profil Sales",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
-            IdentityEditor(state.settings.profile,profile=true) { i->vm.settings { it.copy(profile=i.copy(stockOwnerId=if(i.sales.trim().equals(it.profile.sales.trim(),true))i.stockOwnerId else "")) } }
+            IdentityEditor(settings.profile,profile=true) { i->vm.settings { it.copy(profile=i.copy(stockOwnerId=if(i.sales.trim().equals(it.profile.sales.trim(),true))i.stockOwnerId else "")) } }
             Text("Profil digunakan sebagai isian awal. Laporan yang sudah tersimpan tetap memakai identitasnya sendiri.",style=MaterialTheme.typography.bodySmall)
         }
         "harga" -> {
@@ -44,7 +44,7 @@ import id.lhspapua.domain.*
                 Text("Sub Grosir (SG): Tidak berlaku")
             }
         }
-        "outlet" -> SavedOutlets(state.settings,vm)
+        "outlet" -> SavedOutlets(settings,vm)
         "backup" -> {
             Text("Backup Data",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
             Text("Backup mencakup laporan, harga, profil, daftar outlet, stok antarhari, dan seluruh lampiran. Simpan secara berkala sebelum mengganti HP atau menghapus data aplikasi.")
@@ -52,19 +52,19 @@ import id.lhspapua.domain.*
             OutlinedButton(onClick=restore,modifier=Modifier.fillMaxWidth()) { Text("Pulihkan Backup ZIP") }
             ConfirmButton("Bersihkan lampiran tidak terpakai","Hapus hanya file lampiran yang sudah tidak dipakai oleh laporan?") { vm.cleanup() }
         }
-        "fitur-lhs" -> LhsFeatureOptions(state.settings.lhsFeatures,vm)
+        "fitur-lhs" -> LhsFeatureOptions(settings.lhsFeatures,vm)
         "integrasi" -> {
             Text("Integrasi Laporan",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
             Text("Hubungkan hasil penjualan Callsheet dengan Laporan Harian.")
             val modes=IntegrationMode.entries
-            EqualTabs(listOf("Mode Mandiri","Mode Terintegrasi"),state.settings.integrationMode.ordinal,"integration-mode") { index ->
+            EqualTabs(listOf("Mode Mandiri","Mode Terintegrasi"),settings.integrationMode.ordinal,"integration-mode") { index ->
                 vm.settings { it.copy(integrationMode=modes[index]) }
             }
-            Text(if(state.settings.integrationMode==IntegrationMode.MANDIRI)
+            Text(if(settings.integrationMode==IntegrationMode.MANDIRI)
                 "Callsheet dan LHS diisi terpisah. Tautan yang sudah ada tetap berlaku sampai dilepas."
                 else "LHS menawarkan Callsheet Final yang sesuai. Anda memilih dan mengonfirmasi sumber. Grosir dan Retail tetap diisi di LHS.")
         }
-        "lanjutan" -> AdvancedSettings(state.settings.rules,vm)
+        "lanjutan" -> AdvancedSettings(settings.rules,vm)
     }
 }
 @Composable private fun LhsFeatureOptions(features:LhsFeatureSettings,vm:LhsViewModel) {

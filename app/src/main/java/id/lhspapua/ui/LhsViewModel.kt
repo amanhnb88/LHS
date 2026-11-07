@@ -53,10 +53,15 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
     private data class Write(val payload:String,val action:suspend ()->Unit)
     private val writes=WriteBuffer<Write>()
     var durableWrites:Int=0; private set
-    private fun clearJournalEntry(key:String,payload:String) = synchronized(journalLock) {
-        if(journal.getString(key,null)==payload) {
-            check(journal.edit().remove(key).commit()) { "Catatan draf belum dapat diperbarui." }
+    private fun clearJournalEntry(key:String,payload:String) {
+        val removed=synchronized(journalLock) {
+            if(journal.getString(key,null)!=payload) false else {
+                journal.edit().remove(key).apply()
+                true
+            }
         }
+        // Preserve the durability barrier without holding the lock used by UI edits.
+        if(removed)check(journal.edit().commit()) { "Catatan draf belum dapat diperbarui." }
     }
 
     private suspend fun deleteFromRepository(key:String,draftOnly:Boolean) {
@@ -158,8 +163,8 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
                     lastId=prefs.getString("id",null),lastType=prefs.getString("type",null)) }
             }.onFailure { error(it.message ?: "Penyimpanan tidak dapat dibuka."); mutable.update { it.copy(ready=true,saveFailed=true,saved="Gagal menyimpan") } }
         }
-        viewModelScope.launch { repository.calls.collect { rows -> mutable.update { it.copy(calls=rows) } } }
-        viewModelScope.launch { repository.daily.collect { rows -> mutable.update { it.copy(days=rows) } } }
+        viewModelScope.launch { repository.calls.flowOn(Dispatchers.Default).collect { rows -> mutable.update { it.copy(calls=rows) } } }
+        viewModelScope.launch { repository.daily.flowOn(Dispatchers.Default).collect { rows -> mutable.update { it.copy(days=rows) } } }
     }
     private fun enqueue(dataWrite:Boolean=false,job:suspend ()->Unit) {
         mutable.update { it.copy(pending=it.pending+1) }
@@ -294,7 +299,10 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
         }
     }
     fun settings(change:(Settings)->Settings) {
-        val s=change(state.value.settings);mutable.update { it.copy(settings=s) };queueWrite("settings",repository.json.encodeToString(s)) { repository.save(s) }
+        val current=state.value.settings
+        val s=change(current)
+        if(s==current)return
+        mutable.update { it.copy(settings=s) };queueWrite("settings",repository.json.encodeToString(s)) { repository.save(s) }
     }
     fun updateIdentity(identity:Identity) {
         val r=state.value.day ?: return

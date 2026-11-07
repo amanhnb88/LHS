@@ -90,6 +90,7 @@ import java.io.File
         if(state.busy)LinearProgressIndicator(Modifier.fillMaxWidth())
         when(section) {
             0->{
+                CallsheetLinkPanel(r,state,vm)
                 if(r.usesLedger) {
                     val source=state.days.find { it.id==r.stockSourceId }
                     if(r.products.any { it.opening==null })Notice("Belum ada stok sebelumnya. Masukkan stok awal untuk mulai.")
@@ -118,7 +119,6 @@ import java.io.File
                     if(product==p)ProductEditor(r,p,state,vm)
                 }
                 TotalLine("Total Penjualan",Calculation.safeMoney(empty="—") { Calculation.total(r) })
-                CallsheetLinkPanel(r,state,vm)
             }
             1->if(r.independent) IndependentTesterEditor(r,vm,features.testerEnabled) else {
                 Text("Tester",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)

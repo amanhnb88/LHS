@@ -23,11 +23,12 @@ import java.io.File
     val identity=call?.identity ?: day!!.identity
     val context=LocalContext.current
     var finish by remember { mutableStateOf(false) };var reopen by remember { mutableStateOf(false) };var allErrors by rememberSaveable { mutableStateOf(false) }
-    var formatIndex by rememberSaveable { mutableIntStateOf(0) }
-    val format=ExportFormat.entries[formatIndex]
+    val reportKey="review-${call?.id ?: day?.id}"
+    var selectedFormat by rememberSaveable(reportKey) { mutableStateOf(ExportFormat.JPG.name) }
+    val format=ExportFormat.valueOf(selectedFormat)
     val matching=if(day==null)null else rememberCallsheetReview(day,state)
     val distributable=issues.isEmpty()&&(complete||legacy||independent)
-    ScrollPage(pageKey="review-${call?.id ?: day?.id}") {
+    ScrollPage(pageKey=reportKey) {
         Text("Periksa Laporan",style=MaterialTheme.typography.headlineSmall,fontWeight=FontWeight.Bold)
         Text(if(call!=null)"Callsheet" else "Laporan Harian",fontWeight=FontWeight.SemiBold)
         Text("${identity.displayDate()} · ${identity.sales.ifBlank { "Sales belum diisi" }}")
@@ -79,7 +80,7 @@ import java.io.File
         Text("Ekspor",style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
             ExportFormat.entries.forEach { option ->
-                FilterChip(selected=format==option,onClick={ formatIndex=option.ordinal },label={ Text(option.label) })
+                FilterChip(selected=format==option,onClick={ selectedFormat=option.name },label={ Text(option.label) })
             }
         }
         Text(when(format) {
@@ -93,7 +94,7 @@ import java.io.File
             } },enabled=distributable&&!state.busy) { Text("Buka Excel") }
         } else {
             OutlinedButton(onClick={ vm.previewReport(format==ExportFormat.JPG) },enabled=issues.isEmpty()&&!state.busy,modifier=Modifier.fillMaxWidth()) {
-                Text(if(complete||legacy||independent)"Pratinjau ${format.label}" else "Pratinjau Draf ${format.label}")
+                Text(if(format==ExportFormat.JPG||complete||legacy||independent)"Pratinjau ${format.label}" else "Pratinjau Draf ${format.label}")
             }
         }
         Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {

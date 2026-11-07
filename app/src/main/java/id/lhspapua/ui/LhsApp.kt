@@ -56,6 +56,8 @@ import java.io.File
         vm.selectTab(route)
     }
     fun openSettings(section:String="") {
+        focus.clearFocus()
+        keyboard?.hide()
         settingsOrigin=state.screen
         settingsSection=section
         vm.navigate("settings")
@@ -188,7 +190,7 @@ import java.io.File
                                 "drafts" -> ReportsScreen(state,vm,drafts=true)
                                 "history" -> ReportsScreen(state,vm,drafts=false)
                                 "settings" -> ScrollPage(pageKey=settingsSection) {
-                                    SettingsScreen(settingsSection,{ settingsSection=it },state,vm,backup={ vm.backup(::save) },restore={ restore.launch(arrayOf("application/zip","application/octet-stream")) })
+                                    SettingsScreen(settingsSection,{ settingsSection=it },state.settings,vm,backup={ vm.backup(::save) },restore={ restore.launch(arrayOf("application/zip","application/octet-stream")) })
                                     SaveStatus(state,vm)
                                 }
                             }

@@ -168,9 +168,13 @@ class UiSmokeTest {
             compose.onNodeWithTag("call-sold-$index").assertTextEquals(value)
         }
         compose.onNodeWithTag("call-total-sold").assertTextEquals("1.450 BUNGKUS")
+        compose.onNodeWithText("JPG").performScrollTo().assertIsSelected()
         snapshot("STAGE38_CALL_REVIEW")
+        click("PDF")
+        compose.onNodeWithText("PDF").assertIsSelected()
 
         review(listOf(Quantity(stock=25),Quantity(),Quantity()))
+        compose.onNodeWithText("JPG").assertIsSelected()
         repeat(3) { compose.onNodeWithTag("call-sold-$it").assertTextEquals("—") }
         compose.onNodeWithTag("call-total-sold").assertTextEquals("—")
         review(listOf(Quantity(sold=0),Quantity(),Quantity()))
@@ -235,6 +239,10 @@ class UiSmokeTest {
         click("Periksa Laporan")
         compose.onNodeWithText("Total Penjualan: Rp 1.860.000").performScrollTo().assertExists()
         compose.onNodeWithText("Saldo Akhir: Rp 12.345").assertExists()
+        compose.onNodeWithText("Simpan JPG").performScrollTo().assertIsEnabled()
+        compose.onNodeWithText("Bagikan JPG").assertIsEnabled()
+        assertNull(vm.state.value.preview)
+        click("PDF")
         compose.onNodeWithText("Simpan PDF").performScrollTo().assertIsEnabled()
         click("Excel")
         compose.onNodeWithText("Simpan Excel").performScrollTo().assertIsEnabled()
@@ -398,6 +406,11 @@ class UiSmokeTest {
         compose.onNodeWithContentDescription("Pengaturan").performClick()
         click("Pengaturan Fitur LHS")
         listOf("stock","tester","finance").forEach { compose.onNodeWithTag("feature-$it").assertIsOff() }
+        saved()
+        val writesBefore=vm.durableWrites
+        compose.runOnIdle { vm.settings { it };vm.flushPending() }
+        saved()
+        assertEquals(writesBefore,vm.durableWrites)
         compose.runOnIdle { vm.newDay();vm.updateIdentity(vm.state.value.day!!.identity.copy(sales="Maikel")) }
         saved()
         val id=vm.state.value.day!!.id
@@ -456,13 +469,14 @@ class UiSmokeTest {
         compose.onNodeWithText("Hubungkan Callsheet").assertDoesNotExist()
         compose.runOnIdle { vm.settings { it.copy(integrationMode=IntegrationMode.TERINTEGRASI) } }
         saved()
-        click("Hubungkan Callsheet")
+        click("Pilih Callsheet")
         compose.onNodeWithTag("call-source-${second.id}").assertExists()
         compose.onNodeWithTag("call-source-${sourceDraft.id}").assertDoesNotExist()
+        compose.onNodeWithText("ID ",substring=true).assertDoesNotExist()
         compose.onNodeWithTag("call-source-${first.id}").performClick()
         compose.onNodeWithText("Hubungkan Callsheet dengan LHS?").assertExists()
         assertNull(runBlocking { vm.repository.daily(day.id) }!!.callsheetLink)
-        click("Hubungkan")
+        compose.onNode(hasText("Hubungkan") and hasAnyAncestor(isDialog())).performClick()
         awaitState("Link confirmed") { vm.state.value.day?.callsheetLink?.sourceId==first.id }
         assertTrue(vm.state.value.day!!.products.all { it.sales.all { sale->sale.quantity==null } })
         click("Periksa Laporan")
@@ -471,6 +485,36 @@ class UiSmokeTest {
         click("Lepaskan")
         awaitState("Link removed") { !vm.state.value.busy && vm.state.value.day?.callsheetLink==null }
         compose.onNodeWithText("Selesaikan Laporan").assertIsEnabled()
+    }
+
+    @Test fun singleSourceUsesOneDialogAndZeroRequiresExplicitAction() {
+        val identity=Identity(sales="MAIKEL")
+        val source=CallReport(identity=identity,completed=true,
+            outlets=listOf(Outlet(quantities=listOf(Quantity(sold=370),Quantity(),Quantity()))))
+        val day=newDaily(identity)
+        runBlocking { vm.repository.save(source);vm.repository.save(day) }
+        awaitState("Single Callsheet persisted") { vm.state.value.calls.any { it.id==source.id } }
+        compose.runOnIdle {
+            vm.open(day)
+            vm.settings { it.copy(integrationMode=IntegrationMode.TERINTEGRASI) }
+        }
+        saved()
+        text("sale-0-RTL","370")
+        click("Hubungkan")
+        compose.onNodeWithText("Pilih Callsheet Final").assertDoesNotExist()
+        compose.onNodeWithText("Hubungkan Callsheet dengan LHS?").assertExists()
+        assertNull(runBlocking { vm.repository.daily(day.id) }!!.callsheetLink)
+        compose.onNode(hasText("Hubungkan") and hasAnyAncestor(isDialog())).performClick()
+        awaitState("Single Callsheet confirmed") { vm.state.value.day?.callsheetLink?.sourceId==source.id && !vm.state.value.busy }
+        assertNull(vm.state.value.day!!.products[0].sales[Tier.G.ordinal].quantity)
+        assertEquals(370L,vm.state.value.day!!.products[0].sales[Tier.RTL.ordinal].quantity)
+        compose.onNodeWithTag("call-zero-0-G").performScrollTo().performClick()
+        saved()
+        assertEquals(0L,runBlocking { vm.repository.daily(day.id) }!!.products[0].sales[Tier.G.ordinal].quantity)
+        compose.onNodeWithText("Cocok").assertExists()
+        compose.onNodeWithTag("call-zero-0-G").assertDoesNotExist()
+        assertNull(vm.state.value.day!!.products[1].sales[Tier.G.ordinal].quantity)
+        snapshot("STAGE391_INTEGRATION")
     }
 
     @Test fun upgradingAnOldDraftRequiresConfirmationAndKeepsItsManualValue() {
