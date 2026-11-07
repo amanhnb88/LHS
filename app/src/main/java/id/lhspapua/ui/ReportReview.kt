@@ -24,7 +24,9 @@ import java.io.File
     val context=LocalContext.current
     var finish by remember { mutableStateOf(false) };var reopen by remember { mutableStateOf(false) };var allErrors by rememberSaveable { mutableStateOf(false) }
     val reportKey="review-${call?.id ?: day?.id}"
-    var selectedFormat by rememberSaveable(reportKey) { mutableStateOf(ExportFormat.JPG.name) }
+    var selectedFormat by key(reportKey,state.reportVisit) {
+        rememberSaveable { mutableStateOf(ExportFormat.JPG.name) }
+    }
     val format=ExportFormat.valueOf(selectedFormat)
     val matching=if(day==null)null else rememberCallsheetReview(day,state)
     val distributable=issues.isEmpty()&&(complete||legacy||independent)

@@ -172,6 +172,11 @@ class UiSmokeTest {
         snapshot("STAGE38_CALL_REVIEW")
         click("PDF")
         compose.onNodeWithText("PDF").assertIsSelected()
+        val previous=vm.state.value.call!!
+        compose.runOnIdle { vm.navigate("history") }
+        compose.onNodeWithTag("tab-history").assertIsSelected()
+        compose.runOnIdle { vm.open(previous) }
+        compose.onNodeWithText("JPG").assertIsSelected()
 
         review(listOf(Quantity(stock=25),Quantity(),Quantity()))
         compose.onNodeWithText("JPG").assertIsSelected()

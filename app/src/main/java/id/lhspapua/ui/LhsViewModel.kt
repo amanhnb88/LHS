@@ -23,13 +23,13 @@ data class UiState(
     val call:CallReport?=null,val day:DailyReport?=null,val settings:Settings=Settings(),val saved:String="Tersimpan",
     val pending:Int=0,val error:String?=null,val busy:Boolean=false,val pdf:File?=null,val xlsx:File?=null,val preview:File?=null,
     val notice:String?=null,val saveFailed:Boolean=false,val previewTitle:String="Pratinjau PDF",
-    val focusTag:String="",val focusSerial:Long=0,val lastId:String?=null,val lastType:String?=null)
+    val focusTag:String="",val focusSerial:Long=0,val lastId:String?=null,val lastType:String?=null,val reportVisit:Int=0)
 
 internal data class DashboardUi(val period:SalesPeriod,val sales:String?,val summary:SalesDashboard)
 
 class LhsViewModel(app:Application,private val navigation:SavedStateHandle=SavedStateHandle()):AndroidViewModel(app) {
     val repository=Repository(app)
-    private val mutable=MutableStateFlow(UiState())
+    private val mutable=MutableStateFlow(UiState(reportVisit=navigation["reportVisit"] ?: 0))
     val state=mutable.asStateFlow()
     private val salesDate=MutableStateFlow(ReportTime.date(Instant.now()))
     private val selectedPeriod=MutableStateFlow(SalesPeriod.WEEK)
@@ -227,19 +227,26 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
         val r=newDaily(identity).copy(createdAt=now.toString(),automaticMadeBy=true)
         open(r);saveDay(r)
     }
+    private fun nextReportVisit():Int {
+        val next=state.value.reportVisit+1
+        navigation["reportVisit"]=next
+        return next
+    }
     fun open(r:CallReport) {
         if(state.value.busy)return
         prefs.edit().putString("id",r.id).putString("type","call").apply()
         navigation["screen"]="call"
         navigation["callId"]=r.id
-        mutable.update { it.copy(call=it.call?.takeIf { current->current.id==r.id && journal.contains("call:${r.id}") } ?: r,screen="call",pdf=null,xlsx=null,lastId=r.id,lastType="call",focusTag="") }
+        val visit=nextReportVisit()
+        mutable.update { it.copy(reportVisit=visit,call=it.call?.takeIf { current->current.id==r.id && journal.contains("call:${r.id}") } ?: r,screen="call",pdf=null,xlsx=null,lastId=r.id,lastType="call",focusTag="") }
     }
     fun open(r:DailyReport) {
         if(state.value.busy)return
         prefs.edit().putString("id",r.id).putString("type","day").apply()
         navigation["screen"]="day"
         navigation["dayId"]=r.id
-        mutable.update { it.copy(day=it.day?.takeIf { current->current.id==r.id && journal.contains("day:${r.id}") } ?: r,screen="day",pdf=null,xlsx=null,lastId=r.id,lastType="day",focusTag="") }
+        val visit=nextReportVisit()
+        mutable.update { it.copy(reportVisit=visit,day=it.day?.takeIf { current->current.id==r.id && journal.contains("day:${r.id}") } ?: r,screen="day",pdf=null,xlsx=null,lastId=r.id,lastType="day",focusTag="") }
     }
     fun call(change:(CallReport)->CallReport) {
         if(state.value.busy)return
