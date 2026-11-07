@@ -2,6 +2,7 @@
 
 package id.lhspapua
 
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import org.junit.Rule
@@ -189,7 +190,7 @@ class NativeFlowTest {
         saved()
         val disabledDelivery=field("stock-0-do").assertIsNotEnabled()
         disabledDelivery.performTouchInput { click() }
-        disabledDelivery.assertIsNotFocused()
+        disabledDelivery.assert(!SemanticsMatcher.expectValue(SemanticsProperties.Focused,true))
         assertFalse(imeVisible())
         compose.runOnIdle { vm.settings { it.copy(lhsFeatures=LhsFeatureSettings(true,true,true)) } }
         saved()
