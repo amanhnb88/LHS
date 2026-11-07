@@ -289,7 +289,8 @@ class NativeFlowTest {
         click("Pratinjau JPG")
         compose.waitUntil(15000) { vm.state.value.preview!=null }
         assertEquals("Pratinjau JPG",vm.state.value.previewTitle)
-        back()
+        compose.waitUntil(15000) { compose.onAllNodesWithContentDescription("Halaman 1 dari 1").fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(hasContentDescription("Kembali") and hasAnyAncestor(isDialog())).performClick()
         compose.waitUntil(10000) { vm.state.value.preview==null }
         compose.onNodeWithText("Simpan JPG").performScrollTo().assertIsEnabled()
         click("PDF")
