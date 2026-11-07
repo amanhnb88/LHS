@@ -190,7 +190,7 @@ import java.io.File
                                 "drafts" -> ReportsScreen(state,vm,drafts=true)
                                 "history" -> ReportsScreen(state,vm,drafts=false)
                                 "settings" -> ScrollPage(pageKey=settingsSection) {
-                                    SettingsScreen(settingsSection,{ settingsSection=it },state.settings,vm,backup={ vm.backup(::save) },restore={ restore.launch(arrayOf("application/zip","application/octet-stream")) })
+                                    SettingsScreen(settingsSection,{ settingsSection=it },state.settings,state.day,state.busy,vm,backup={ vm.backup(::save) },restore={ restore.launch(arrayOf("application/zip","application/octet-stream")) })
                                     SaveStatus(state,vm)
                                 }
                             }

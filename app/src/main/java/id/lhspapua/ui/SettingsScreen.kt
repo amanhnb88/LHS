@@ -12,12 +12,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import id.lhspapua.domain.*
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
 
-@Composable internal fun SettingsScreen(section:String,select:(String)->Unit,settings:Settings,vm:LhsViewModel,backup:()->Unit,restore:()->Unit) {
+@Composable internal fun SettingsScreen(section:String,select:(String)->Unit,settings:Settings,activeReport:DailyReport?,busy:Boolean,vm:LhsViewModel,backup:()->Unit,restore:()->Unit) {
     when(section) {
         "" -> {
             listOf(
@@ -56,14 +53,14 @@ import kotlinx.coroutines.flow.map
             ConfirmButton("Bersihkan lampiran tidak terpakai","Hapus hanya file lampiran yang sudah tidak dipakai oleh laporan?") { vm.cleanup() }
         }
         "fitur-lhs" -> LhsFeatureOptions(settings.lhsFeatures,vm)
-        "integrasi" -> IntegrationOptions(settings.integrationMode,vm)
+        "integrasi" -> IntegrationOptions(settings.integrationMode,vm,activeReport,busy)
         "lanjutan" -> AdvancedSettings(settings.rules,vm)
     }
 }
-@Composable private fun IntegrationOptions(mode:IntegrationMode,vm:LhsViewModel) {
-    val current by remember(vm) { vm.state.map { it.day to it.busy }.distinctUntilChanged() }
-        .collectAsStateWithLifecycle(vm.state.value.day to vm.state.value.busy)
-    val draft=current.first?.takeIf { it.status==ReportStatus.DRAFT && it.automaticSold }
+@Composable private fun IntegrationOptions(mode:IntegrationMode,vm:LhsViewModel,activeReport:DailyReport?,busy:Boolean) {
+    // The root already observes UiState; avoid an extra collector and repeated
+    // DailyReport equality checks on every autosave/status emission.
+    val draft=activeReport?.takeIf { it.status==ReportStatus.DRAFT && it.automaticSold }
     var requested by remember { mutableStateOf<IntegrationMode?>(null) }
     fun choose(next:IntegrationMode) {
         if(draft!=null && draft.reportMode!=next) {
@@ -74,7 +71,7 @@ import kotlinx.coroutines.flow.map
     Text("Integrasi Laporan",style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.Bold)
     listOf(IntegrationMode.MANDIRI,IntegrationMode.SALES,IntegrationMode.LEADER).forEach { option ->
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
-            RadioButton(selected=mode==option,onClick={ choose(option) },enabled=!current.second,
+            RadioButton(selected=mode==option,onClick={ choose(option) },enabled=!busy,
                 modifier=Modifier.testTag("integration-mode-${option.name}"))
             TextButton(onClick={ choose(option) },enabled=!current.second) { Text(option.label) }
         }

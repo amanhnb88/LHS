@@ -116,6 +116,10 @@ class LhsViewModel(app:Application,private val navigation:SavedStateHandle=Saved
     }
     fun focus(tag:String) { mutable.update { it.copy(focusTag=tag,focusSerial=it.focusSerial+1) } }
     fun flushPending() {
+        // Navigation without pending edits must not enqueue a disk barrier and
+        // trigger global UiState recomposition on every Settings visit.
+        // When the journal contains edits, the durability barrier remains intact.
+        if(state.value.pending==0 && synchronized(journalLock) { journal.all.isEmpty() })return
         enqueue(dataWrite=true) {
             // A synchronous commit waits for the journal's asynchronous applies.
             check(journal.edit().commit()) { "Catatan draf belum dapat disimpan." }
