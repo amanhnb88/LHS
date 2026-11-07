@@ -15,8 +15,9 @@ import org.junit.After
 import org.junit.Before
 import androidx.room.Room
 import id.lhspapua.data.LhsDatabase
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.Job
 import org.junit.Rule
 import org.junit.Test
 import org.junit.Assert.*
@@ -44,9 +45,17 @@ class UiSmokeTest {
         }
     }
     @Before fun isolate() {
+        val activityJob=compose.runOnIdle {
+            val activity=compose.activity
+            val initial=ViewModelProvider(activity)[LhsViewModel::class.java]
+            val job=checkNotNull(initial.viewModelScope.coroutineContext[Job])
+            activity.setContent {}
+            activity.viewModelStore.clear()
+            job
+        }
+        compose.waitUntil(15000) { activityJob.isCompleted }
         compose.runOnIdle {
-            compose.activity.viewModelStore.clear()
-            // Each scenario gets a real, isolated Room database, never a previous activity's singleton.
+            // Replace the database only after the activity's report collectors have stopped.
             (databaseInstance.get(null) as? LhsDatabase)?.close()
             database=Room.inMemoryDatabaseBuilder(compose.activity.application,LhsDatabase::class.java).build()
             databaseInstance.set(null,database)
@@ -59,7 +68,14 @@ class UiSmokeTest {
         vm.navigate("home")
     }
     @After fun releaseScenario() {
-        compose.runOnIdle { if(::vm.isInitialized)vm.viewModelScope.cancel() }
+        if(::vm.isInitialized) {
+            val job=compose.runOnIdle {
+                compose.activity.setContent {}
+                checkNotNull(vm.viewModelScope.coroutineContext[Job]).also { it.cancel() }
+            }
+            // Cancel is asynchronous: wait while Compose drains Main and Room finishes active queries.
+            compose.waitUntil(15000) { job.isCompleted }
+        }
         if(::database.isInitialized)database.close()
         databaseInstance.set(null,null)
     }
