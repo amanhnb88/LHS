@@ -73,7 +73,7 @@ import id.lhspapua.domain.*
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
             RadioButton(selected=mode==option,onClick={ choose(option) },enabled=!busy,
                 modifier=Modifier.testTag("integration-mode-${option.name}"))
-            TextButton(onClick={ choose(option) },enabled=!current.second) { Text(option.label) }
+            TextButton(onClick={ choose(option) },enabled=!busy) { Text(option.label) }
         }
     }
     Text(when(mode) {
@@ -85,7 +85,7 @@ import id.lhspapua.domain.*
     Text("Pilihan awal untuk laporan baru. Laporan Final dan tautan yang sudah ada tetap tersimpan.",style=MaterialTheme.typography.bodySmall)
     if(draft!=null) {
         Text("Draft aktif: ${draft.salesMode.label} · ${draft.identity.displayDate()}",style=MaterialTheme.typography.bodySmall)
-        if(draft.reportMode!=mode)TextButton(onClick={ choose(mode) },enabled=!current.second) { Text("Terapkan ke Draft Aktif") }
+        if(draft.reportMode!=mode)TextButton(onClick={ choose(mode) },enabled=!busy) { Text("Terapkan ke Draft Aktif") }
     }
     requested?.let { next ->
         val conflicts=draft?.let { Calculation.modeConflicts(it,next) }.orEmpty()
